@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+venv/
+ENV/
+env/
+
+# Databases
+feynman.db
+feynman.db-journal
+feynman.db-wal
+feynman.db-shm
+chroma_db/
+
+# Uploaded Files
+static/uploads/*
+!static/uploads/.gitkeep
+
+# IDEs and editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*~
