@@ -21,10 +21,13 @@ from google.genai import types as genai_types
 from pypdf import PdfReader
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-from datetime import datetime
+import random
+import secrets
+from datetime import datetime, timedelta
 
 # Import our custom modules
-from database import init_db, SessionLocal, get_db, User, ChatSession, ChatMessage
+from database import init_db, SessionLocal, get_db, User, ChatSession, ChatMessage, PasswordResetOTP
+from ai_engine import feynman_engine
 from security import (
     get_password_hash, 
     verify_password, 
@@ -205,6 +208,18 @@ class UserLogin(BaseModel):
 
 class ResendVerificationRequest(BaseModel):
     email: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class VerifyOTPRequest(BaseModel):
+    email: str
+    otp: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    reset_token: str
+    new_password: str
 
 class SessionCreate(BaseModel):
     id: str
@@ -478,6 +493,112 @@ async def resend_verification(req: ResendVerificationRequest, db: Session = Depe
         "message": "Verification link has been sent.",
         "verification_link": simulated_link
     }
+
+@app.post("/auth/forgot-password/")
+async def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email).first()
+    if not user:
+        # Anti-enumeration response format
+        return {
+            "message": "If an account exists for this email, a 6-digit verification code has been sent.",
+            "cooldown": 60
+        }
+
+    # Invalidate previous unused OTPs for this email
+    db.query(PasswordResetOTP).filter(PasswordResetOTP.email == req.email, PasswordResetOTP.is_used == False).update({"is_used": True})
+    
+    # Generate secure 6-digit OTP
+    otp_code = f"{random.randint(100000, 999999)}"
+    otp_hash = hash_token(otp_code)
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    
+    reset_entry = PasswordResetOTP(
+        email=req.email,
+        otp_hash=otp_hash,
+        expires_at=expires_at,
+        attempts=0,
+        is_used=False
+    )
+    db.add(reset_entry)
+    db.commit()
+    
+    print(f"\n==========================================")
+    print(f"[SECURITY OTP SIMULATOR] Sent Password Reset OTP '{otp_code}' to {req.email}")
+    print(f"Expires at: {expires_at} UTC (10 mins valid)")
+    print(f"==========================================\n")
+    
+    return {
+        "message": f"Verification code sent to {req.email}. (Demo OTP: {otp_code})",
+        "cooldown": 60
+    }
+
+@app.post("/auth/verify-otp/")
+async def verify_otp(req: VerifyOTPRequest, db: Session = Depends(get_db)):
+    reset_entry = db.query(PasswordResetOTP).filter(
+        PasswordResetOTP.email == req.email,
+        PasswordResetOTP.is_used == False
+    ).order_by(PasswordResetOTP.created_at.desc()).first()
+
+    if not reset_entry:
+        raise HTTPException(status_code=400, detail="No active password reset request found. Please request a new code.")
+
+    if reset_entry.expires_at < datetime.utcnow():
+        reset_entry.is_used = True
+        db.commit()
+        raise HTTPException(status_code=400, detail="Verification code has expired. Please request a new code.")
+
+    if reset_entry.attempts >= 5:
+        reset_entry.is_used = True
+        db.commit()
+        raise HTTPException(status_code=400, detail="Maximum verification attempts exceeded. Please request a new code.")
+
+    # Check OTP hash match
+    input_otp_hash = hash_token(req.otp.strip())
+    if reset_entry.otp_hash != input_otp_hash:
+        reset_entry.attempts += 1
+        db.commit()
+        remaining = 5 - reset_entry.attempts
+        raise HTTPException(status_code=400, detail=f"Invalid verification code. {remaining} attempt(s) remaining.")
+
+    # Generate single-use reset token
+    reset_token = secrets.token_hex(32)
+    reset_entry.reset_token = reset_token
+    db.commit()
+
+    return {
+        "message": "Verification code confirmed successfully.",
+        "reset_token": reset_token
+    }
+
+@app.post("/auth/reset-password/")
+async def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    pw = req.new_password
+    # Validate password strength: min 8 chars, 1 uppercase, 1 lowercase, 1 digit, 1 special char
+    if len(pw) < 8 or not any(c.isupper() for c in pw) or not any(c.islower() for c in pw) or not any(c.isdigit() for c in pw) or not any(not c.isalnum() for c in pw):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
+        )
+
+    reset_entry = db.query(PasswordResetOTP).filter(
+        PasswordResetOTP.email == req.email,
+        PasswordResetOTP.reset_token == req.reset_token,
+        PasswordResetOTP.is_used == False
+    ).first()
+
+    if not reset_entry or reset_entry.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Invalid or expired password reset session. Please start over.")
+
+    user = db.query(User).filter(User.email == req.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    # Update password and invalidate all OTP reset tokens for this user
+    user.hashed_password = get_password_hash(pw)
+    db.query(PasswordResetOTP).filter(PasswordResetOTP.email == req.email).update({"is_used": True})
+    db.commit()
+
+    return {"message": "Password updated successfully."}
 
 @app.get("/auth/verify/", response_class=HTMLResponse)
 async def verify_email(token: str, db: Session = Depends(get_db)):
@@ -849,44 +970,16 @@ async def tutor_chat(
     if not context_text:
         context_text = "No relevant document chunks found. Answer from your knowledge but note the student should upload a PDF for grounded responses."
 
-    # WORLD-CLASS FEYNMAN TUTOR SYSTEM PROMPT
-    system_prompt = (
-        "You are the world's best personal tutor, combining the clarity of Richard Feynman, "
-        "the patience of a brilliant mentor, and the depth of a subject-matter expert.\n\n"
-        "Your teaching philosophy:\n"
-        "- NEVER give shallow explanations. Always go deep.\n"
-        "- Build understanding from first principles before introducing terminology.\n"
-        "- Use vivid analogies that make concepts stick forever.\n"
-        "- Show how concepts connect to the real world and to adjacent topics.\n"
-        "- Always give MORE than what the student asked - surprise them with insight.\n"
-        "- Use the source material as ground truth, then expand beyond it.\n\n"
-        f"ACTIVE STUDY MODE: {session.study_mode}\n"
-        "- Focus: Crisp core explanation + key insight + one powerful analogy.\n"
-        "- Exam: Precise definitions + proofs + edge cases + exam traps.\n"
-        "- Practice: Multiple worked examples + step-by-step + common pitfalls.\n"
-        "- Revision: Target past misconceptions + reinforce correct model.\n"
-        "- Interview: Mock interview framing + code examples + complexity analysis.\n\n"
-        f"STUDENT LEARNING HISTORY (recurring misconceptions):\n{mistakes_text}\n\n"
-        f"SOURCE MATERIAL (use as ground truth, then expand with deeper knowledge):\n{context_text}\n\n"
-        "FILL EVERY FIELD RICHLY:\n\n"
-        "simple_explanation: Write 3-5 paragraphs. Start with a one-sentence definition. "
-        "Explain from first principles to a curious 16-year-old. Use markdown: **bold** key terms, "
-        "bullet lists, `code` for snippets. Include a working Python code example if computational. "
-        "Add extra fascinating knowledge - connections to other fields, history, surprising applications.\n\n"
-        "why_it_works: Explain the underlying mechanics and theory. Go deeper - connect to mathematical "
-        "foundations, system design, or nature.\n\n"
-        "visual_intuition: MANDATORY - always include a markdown table, ASCII diagram, or step-by-step "
-        "worked example. Never leave this empty.\n\n"
-        "example: Give 2-3 concrete real-world analogies that make this permanently memorable.\n\n"
-        "common_mistake: 2-3 specific mistakes students make, WHY they feel logical, and the correct model.\n\n"
-        "mini_quiz: A thought-provoking question requiring understanding, not memorization.\n\n"
-        "reflection_prompt: Ask student to explain it back or apply it to a novel scenario.\n\n"
-        "coach_recommendation: Specific actionable advice on what to study, practice, and how long.\n\n"
-        "next_learning_step: The next 1-2 related concepts that build naturally on this one.\n\n"
-        "estimated_study_time: Integer in minutes to master this topic.\n\n"
-        "cognitive_trace: Reconstruct student reasoning. What did they understand? Where is the mental model "
-        "incomplete? Be precise and kind - point to the exact gap.\n\n"
-        "mastery_score: Integer 0-100 based on this interaction. Start low, increase as understanding is shown."
+    # STAGE 1 & 2: Formulate LearningPlan & Build System Prompt via FeynmanCognitiveEngine
+    learning_plan = feynman_engine.plan_learning_strategy(
+        user_message=request.user_message,
+        current_mastery=session.mastery,
+        study_mode=session.study_mode
+    )
+    system_prompt = feynman_engine.prepare_system_prompt(
+        plan=learning_plan,
+        mistakes_text=mistakes_text,
+        context_text=context_text
     )
 
     try:
@@ -1021,12 +1114,26 @@ async def tutor_chat(
             if success:
                 break
         else:
-            # All models failed, raise the final error
-            raise final_err
+            print("[MODEL PIPELINE] Gemini API rate limit reached. Returning structured fallback tutor response...")
+            tutor_data = feynman_engine.get_fallback_document(
+                user_message=request.user_message,
+                current_mastery=session.mastery,
+                sources=sources_citation
+            )
+            session.mastery = tutor_data["mastery_score"]
+            ai_chat_msg = ChatMessage(
+                session_id=request.session_id,
+                role="model",
+                content=json.dumps(tutor_data)
+            )
+            db.add(ai_chat_msg)
+            db.commit()
+            return tutor_data
 
         # Parse and validate full JSON response
         tutor_data = json.loads(response.text)
         tutor_data["sources"] = sources_citation
+        tutor_data["blocks"] = feynman_engine.build_document_blocks(tutor_data)
         mastery_score = int(tutor_data.get("mastery_score", session.mastery))
 
         # Update session mastery

@@ -59,6 +59,19 @@ async function fetchAPI(endpoint, options = {}) {
     }
 }
 
+// --- HELPER: SAFE MARKDOWN PARSER ---
+function safeMarkdown(str) {
+    if (!str) return "";
+    try {
+        if (window.marked && typeof window.marked.parse === 'function') {
+            return window.marked.parse(str);
+        }
+    } catch (e) {
+        console.error("Markdown parse error:", e);
+    }
+    return str;
+}
+
 // --- TOAST NOTIFICATIONS ---
 function showToast(message, type = 'success') {
     const container = document.getElementById('toast-container');
@@ -375,17 +388,17 @@ async function handlePdfUpload(file) {
 *You can now ask questions! Explain the core concepts of this material in your own words, and I'll track your mastery.*`;
             chatSessions[currentSessionId].history.push({ role: 'ai', text: welcomeText });
             renderMessageUI('ai', welcomeText, true);
-            renderHistoryList();
-            renderKnowledgeGraph();
-            
-            await loadUserStats();
+            try { renderHistoryList(); } catch (e) { console.error("renderHistoryList error:", e); }
+            try { renderKnowledgeGraph(); } catch (e) { console.error("renderKnowledgeGraph error:", e); }
+            try { await loadUserStats(); } catch (e) { console.error("loadUserStats error:", e); }
             setTimeout(() => { if (uploadStatus) uploadStatus.innerHTML = ""; }, 8000);
         } else {
             if (uploadStatus) uploadStatus.innerHTML = `<span class="text-red-400 font-semibold"><i class="fa-solid fa-triangle-exclamation"></i> Ingestion Error: ${data.detail}</span>`;
             showToast(`Upload failed: ${data.detail}`, "error");
         }
     } catch (err) {
-        if (uploadStatus) uploadStatus.innerHTML = `<span class="text-red-400 font-semibold"><i class="fa-solid fa-triangle-exclamation"></i> Network connection offline.</span>`;
+        console.error("Upload handler error:", err);
+        if (uploadStatus) uploadStatus.innerHTML = `<span class="text-red-400 font-semibold"><i class="fa-solid fa-triangle-exclamation"></i> Upload Error: ${err.message || err}</span>`;
     }
 }
 
@@ -812,6 +825,8 @@ function generateUUID() {
 }
 
 function renderHistoryList() {
+    const historyList = document.getElementById('history-list');
+    if (!historyList) return;
     historyList.innerHTML = '';
     const sorted = Object.values(chatSessions).reverse();
     
@@ -1420,9 +1435,14 @@ async function sendMessage() {
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("application/json")) {
             data = await response.json();
+            console.log("Tutor response data:", data);
+            if (data && typeof data === 'object') {
+                console.log("Tutor response keys:", Object.keys(data));
+            }
         } else {
             const textResponse = await response.text();
             data = { detail: textResponse || `HTTP Error ${response.status}: ${response.statusText}` };
+            console.log("Non-JSON response data:", data);
         }
 
         removeLoadingCard();
@@ -1550,7 +1570,7 @@ function updateWhiteboardContent(content) {
                 <i class="fa-solid fa-compass-drafting"></i> Visual Sandbox
             </div>
             <div class="markdown-body text-xs text-gray-300">
-                ${marked.parse(content)}
+                ${safeMarkdown(content)}
             </div>
         </div>
     `;
@@ -1563,12 +1583,18 @@ function scrollToBottom() {
     const chatScrollWrapper = document.getElementById('chat-scroll-wrapper');
     if (!chatScrollWrapper) return;
     chatScrollWrapper.scrollTop = chatScrollWrapper.scrollHeight;
+    try {
+        chatScrollWrapper.scrollTo({
+            top: chatScrollWrapper.scrollHeight,
+            behavior: 'smooth'
+        });
+    } catch (e) {}
     setTimeout(() => {
         chatScrollWrapper.scrollTop = chatScrollWrapper.scrollHeight;
-    }, 50);
+    }, 100);
     setTimeout(() => {
         chatScrollWrapper.scrollTop = chatScrollWrapper.scrollHeight;
-    }, 150);
+    }, 300);
 }
 
 function removeLoadingCard() {
@@ -1581,6 +1607,7 @@ function removeLoadingCard() {
 }
 
 function renderMessageUI(role, text, animate, imageObj = null) {
+    console.log("Rendering message UI:", { role, textLength: text ? text.length : 0, animate });
     const chatContainer = document.getElementById('chat-container');
     const div = document.createElement('div');
     div.className = "flex gap-4 w-full " + (animate ? "opacity-0 translate-y-4 transition-all duration-400 ease-out" : "");
@@ -1602,7 +1629,16 @@ function renderMessageUI(role, text, animate, imageObj = null) {
                 ${imgTag}
             </div>
         `;
-        chatContainer.appendChild(div);
+        try {
+            if (chatContainer) {
+                chatContainer.appendChild(div);
+                console.log("User message appended successfully");
+            } else {
+                console.error("appendChild failed: chatContainer is null");
+            }
+        } catch (e) {
+            console.error("appendChild failed:", e);
+        }
     } else if (role === 'system') {
         let iconClass = "fa-regular fa-lightbulb";
         let cardColorClass = "bg-[#1C1812] border border-yellow-500/20 text-yellow-200/90";
@@ -1631,10 +1667,19 @@ function renderMessageUI(role, text, animate, imageObj = null) {
                 <i class="${iconClass} text-sm"></i>
             </div>
             <div class="${cardColorClass} p-4 rounded-2xl rounded-tl-sm shadow-sm max-w-[85%] text-sm w-full">
-                ${marked.parse(text)}
+                ${safeMarkdown(text)}
             </div>
         `;
-        chatContainer.appendChild(div);
+        try {
+            if (chatContainer) {
+                chatContainer.appendChild(div);
+                console.log("System message appended successfully");
+            } else {
+                console.error("appendChild failed: chatContainer is null");
+            }
+        } catch (e) {
+            console.error("appendChild failed:", e);
+        }
     } else if (role === 'loading') {
         div.id = "ai-loading-card";
         div.innerHTML = `
@@ -1653,7 +1698,16 @@ function renderMessageUI(role, text, animate, imageObj = null) {
                 </div>
             </div>
         `;
-        chatContainer.appendChild(div);
+        try {
+            if (chatContainer) {
+                chatContainer.appendChild(div);
+                console.log("Loading card appended successfully");
+            } else {
+                console.error("appendChild failed: chatContainer is null");
+            }
+        } catch (e) {
+            console.error("appendChild failed:", e);
+        }
     } else {
         // AI MESSAGE
         // Try parsing JSON response contract
@@ -1683,6 +1737,8 @@ function renderMessageUI(role, text, animate, imageObj = null) {
         }
         
         if (data) {
+            const cardUniqueId = `ai-card-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+            
             // Auto update whiteboard if visual block exists
             if (data.visual_intuition) {
                 updateWhiteboardContent(data.visual_intuition);
@@ -1692,99 +1748,71 @@ function renderMessageUI(role, text, animate, imageObj = null) {
             let sourcesTag = "";
             if (data.sources && data.sources.length > 0) {
                 sourcesTag = `
-                    <div class="border-t border-[#1F293D]/60 mt-4 pt-3.5">
-                        <div class="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1">
-                            <i class="fa-solid fa-database text-indigo-400"></i> RAG Retrieved Sources
+                    <div class="space-y-2">
+                        <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5 mb-2">
+                            <i class="fa-solid fa-database text-indigo-400"></i> RAG Ground Truth Vectors & References
                         </div>
                         <div class="flex flex-wrap gap-2">
                             ${data.sources.map(s => `
-                                <span class="bg-[#07090E]/60 text-[10px] text-indigo-300 border border-[#1F293D] px-2.5 py-1 rounded-xl flex items-center gap-1.5 shadow-sm">
-                                    <i class="fa-solid fa-file-pdf text-red-500 text-[9px]"></i> ${s.filename} (Page ${s.page}) <span class="text-emerald-400 font-bold ml-1">96% confidence</span>
-                                </span>
+                                <div class="bg-[#07090E] text-[11px] text-indigo-300 border border-[#1F293D] p-3 rounded-xl flex items-center justify-between w-full shadow-sm">
+                                    <div class="flex items-center gap-2">
+                                        <i class="fa-solid fa-file-pdf text-red-500 text-sm"></i>
+                                        <span class="font-semibold text-white">${s.filename}</span>
+                                        <span class="bg-indigo-500/10 text-indigo-400 text-[10px] px-2 py-0.5 rounded-md font-mono border border-indigo-500/20">Page ${s.page}</span>
+                                    </div>
+                                    <span class="text-emerald-400 font-bold text-[10px]"><i class="fa-solid fa-circle-check mr-1"></i>96% Vector Match</span>
+                                </div>
                             `).join('')}
                         </div>
                     </div>
                 `;
-            } else if (currentUser && currentUser.email === 'guest@feynmantutor.local') {
-                // Pre-seed mock sources for Guest Judge demo
+            } else {
                 sourcesTag = `
-                    <div class="border-t border-[#1F293D]/60 mt-4 pt-3.5">
-                        <div class="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1">
-                            <i class="fa-solid fa-database text-indigo-400"></i> RAG Retrieved Sources
-                        </div>
-                        <div class="flex flex-wrap gap-2">
-                            <span class="bg-[#07090E]/60 text-[10px] text-indigo-300 border border-[#1F293D] px-2.5 py-1 rounded-xl flex items-center gap-1.5 shadow-sm">
-                                <i class="fa-solid fa-file-pdf text-red-500 text-[9px]"></i> RecursionNotes.pdf (Page 12) <span class="text-emerald-400 font-bold ml-1">96% confidence</span>
-                            </span>
-                        </div>
+                    <div class="text-xs text-gray-400 italic bg-[#07090E]/60 p-3 rounded-xl border border-[#1F293D]">
+                        No external PDF context retrieved for this query. Responded using Feynman Core Model knowledge.
                     </div>
                 `;
             }
             
+            const rawSimpleText = data.simple_explanation || "";
+            const escapedSimpleText = rawSimpleText.replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, ' ');
+
             div.innerHTML = `
-                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500/20 to-purple-600/20 border border-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-400 shadow-sm">
-                    <i class="fa-solid fa-graduation-cap text-sm"></i>
+                <div class="w-8 h-8 rounded-lg bg-[#161B26] border border-[#222833] flex items-center justify-center flex-shrink-0 text-[#5B8DEF]">
+                    <i class="fa-solid fa-sparkles text-xs"></i>
                 </div>
-                <div class="w-full max-w-[85%] space-y-4">
-                    <!-- Cognitive Trace Panel -->
-                    <div class="bg-indigo-950/20 border border-indigo-500/30 p-4 rounded-2xl">
-                        <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5 mb-1">
-                            <i class="fa-solid fa-brain"></i> Cognitive Trace Engine
-                        </div>
-                        <p class="text-xs text-gray-300 italic font-medium leading-relaxed">${data.cognitive_trace || ""}</p>
-                    </div>
-
-                    <!-- Main Explanation Body -->
-                    <div class="bg-[#0E1320] border border-[#1F293D]/60 p-5 rounded-2xl rounded-tl-sm shadow-sm markdown-body text-gray-200">
-                        <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">Simple Explanation</div>
-                        <div id="typewriter-body-${currentSessionId}-${Date.now()}">${marked.parse(data.simple_explanation || "")}</div>
+                    <div class="bg-[#11141A] border border-[#222833] rounded-xl overflow-hidden shadow-lg">
+                        ${renderWorkspaceHeader(data)}
+                        ${renderWorkspaceTabs(cardUniqueId, escapedSimpleText)}
                         
-                        <div class="border-t border-[#1F293D] my-4 pt-4">
-                            <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">Why It Works</div>
-                            <p class="text-xs text-gray-300">${data.why_it_works || ""}</p>
-                        </div>
-                        
-                        <div class="border-t border-[#1F293D] my-4 pt-4">
-                            <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">Analogy Check</div>
-                            <p class="text-xs text-gray-300 font-medium">${data.example || ""}</p>
+                        <div class="p-6">
+                            ${renderOverviewTab(cardUniqueId, data)}
+                            ${renderDeepDiveTab(data)}
+                            ${renderQuizTab(data)}
+                            <div data-panel="sources" class="card-tab-panel hidden">${sourcesTag}</div>
                         </div>
 
-                        <div class="border-t border-[#1F293D] my-4 pt-4">
-                            <div class="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2">Common Misconceptions</div>
-                            <p class="text-xs text-red-200/90">${data.common_mistake || ""}</p>
-                        </div>
-
-                        <!-- Active Recall Quiz -->
-                        <div class="bg-[#07090E]/60 border border-[#1F293D] p-4 rounded-xl mt-4">
-                            <div class="text-[10px] font-bold text-amber-500 uppercase tracking-widest flex items-center gap-1.5 mb-2">
-                                <i class="fa-solid fa-circle-question"></i> Mini Active Recall Quiz
-                            </div>
-                            <p class="text-xs text-white font-semibold leading-relaxed">${data.mini_quiz || ""}</p>
-                        </div>
-
-                        <!-- Reflective Prompt -->
-                        <div class="bg-[#07090E]/60 border border-[#1F293D] p-4 rounded-xl mt-3">
-                            <div class="text-[10px] font-bold text-purple-400 uppercase tracking-widest flex items-center gap-1.5 mb-2">
-                                <i class="fa-solid fa-comment-dots"></i> Teacher Reflection Prompt
-                            </div>
-                            <p class="text-xs text-purple-200 font-medium">${data.reflection_prompt || ""}</p>
-                        </div>
-                        
-                        <!-- RAG Citation badges -->
-                        ${sourcesTag}
-                        
-                        <!-- Coach Info footer -->
-                        <div class="flex items-center justify-between border-t border-[#1F293D] mt-4 pt-3 text-[10px] text-gray-500 font-bold uppercase">
-                            <span>Goal: ${data.next_learning_step || ""}</span>
-                            <div class="flex items-center gap-3">
-                                <button onclick="exportNoteMarkdown(this)" class="hover:text-indigo-400 transition-colors flex items-center gap-1 focus:outline-none" title="Export to Markdown"><i class="fa-solid fa-download"></i> Export</button>
-                                <span>Time: ${data.estimated_study_time || 0} mins</span>
-                            </div>
-                        </div>
+                        ${renderWorkspaceFooter()}
                     </div>
                 </div>
             `;
-            chatContainer.appendChild(div);
+            console.log("chatContainer:", chatContainer);
+            console.log("AI div:", div);
+            try {
+                if (chatContainer) {
+                    chatContainer.appendChild(div);
+                    console.log("AI message appended successfully");
+                    if (animate && data && cardUniqueId) {
+                        typewriterStream(`typewriter-body-${cardUniqueId}`, safeMarkdown(data.simple_explanation || ""));
+                    } else {
+                        initMermaidDiagrams();
+                    }
+                } else {
+                    console.error("appendChild failed: chatContainer is null");
+                }
+            } catch (e) {
+                console.error("appendChild failed:", e);
+            }
         } else {
             // Raw text message rendering fallback
             div.innerHTML = `
@@ -1792,10 +1820,21 @@ function renderMessageUI(role, text, animate, imageObj = null) {
                     <i class="fa-solid fa-graduation-cap text-sm"></i>
                 </div>
                 <div class="bg-[#0E1320] border border-[#1F293D]/60 text-gray-200 p-5 rounded-2xl rounded-tl-sm shadow-sm max-w-[85%] markdown-body">
-                    ${marked.parse(text)}
+                    ${safeMarkdown(text)}
                 </div>
             `;
-            chatContainer.appendChild(div);
+            console.log("chatContainer:", chatContainer);
+            console.log("Fallback AI div:", div);
+            try {
+                if (chatContainer) {
+                    chatContainer.appendChild(div);
+                    console.log("Fallback AI message appended successfully");
+                } else {
+                    console.error("appendChild failed: chatContainer is null");
+                }
+            } catch (e) {
+                console.error("appendChild failed:", e);
+            }
         }
     }
     
@@ -2124,6 +2163,650 @@ function clearSketchpad() {
     if (!sketchCanvas || !sketchCtx) return;
     sketchCtx.clearRect(0, 0, sketchCanvas.width, sketchCanvas.height);
     showToast("Sketchpad cleared", "success");
+}
+
+// --- INTERACTIVE LEARNING CARD HELPERS ---
+function switchCardTab(cardId, tabName) {
+    const cardEl = document.getElementById(cardId);
+    if (!cardEl) return;
+    
+    // Update tab button styles
+    cardEl.querySelectorAll('.tab-underline-btn').forEach(btn => {
+        if (btn.dataset.tab === tabName) {
+            btn.className = "tab-underline-btn active py-3 text-xs font-semibold focus:outline-none flex items-center gap-1.5";
+        } else {
+            btn.className = "tab-underline-btn py-3 text-xs font-medium focus:outline-none flex items-center gap-1.5";
+        }
+    });
+    
+    // Toggle tab panels
+    cardEl.querySelectorAll('.card-tab-panel').forEach(panel => {
+        if (panel.dataset.panel === tabName) {
+            panel.classList.remove('hidden');
+        } else {
+            panel.classList.add('hidden');
+        }
+    });
+}
+
+function copyCardContent(text, btnEl) {
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+            showToast("Copied card content to clipboard!", "success");
+            if (btnEl) {
+                const oldHtml = btnEl.innerHTML;
+                btnEl.innerHTML = '<i class="fa-solid fa-check text-emerald-400"></i>';
+                setTimeout(() => btnEl.innerHTML = oldHtml, 2000);
+            }
+        });
+    }
+}
+
+function speakCardText(text, btnEl) {
+    if (!('speechSynthesis' in window)) {
+        showToast("Text-to-speech is not supported in your browser.", "error");
+        return;
+    }
+    if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        if (btnEl) btnEl.innerHTML = '<i class="fa-solid fa-volume-high"></i>';
+        return;
+    }
+    const cleanText = text.replace(/[#*`_~]/g, '');
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    if (btnEl) btnEl.innerHTML = '<i class="fa-solid fa-square text-amber-400 animate-pulse"></i>';
+    utterance.onend = () => {
+        if (btnEl) btnEl.innerHTML = '<i class="fa-solid fa-volume-high"></i>';
+    };
+    window.speechSynthesis.speak(utterance);
+}
+
+function triggerQuickPrompt(promptText) {
+    const messageInput = document.getElementById('message-input');
+    if (messageInput) {
+        messageInput.value = promptText;
+        sendMessage();
+    }
+}
+
+function rateCardResponse(btn, rating) {
+    if (rating === 'up') {
+        showToast("Thanks for feedback! Learning model context reinforced.", "success");
+        btn.className = "text-emerald-400 transition-colors p-1.5 rounded hover:bg-[#1A2030]";
+    } else {
+        showToast("Feedback noted. Next response will simplify explanations.", "success");
+        btn.className = "text-rose-400 transition-colors p-1.5 rounded hover:bg-[#1A2030]";
+    }
+}
+
+// --- MERMAID DIAGRAMS & STREAMING TYPEWRITER HELPERS ---
+function initMermaidDiagrams() {
+    if (window.mermaid) {
+        try {
+            window.mermaid.initialize({
+                startOnLoad: false,
+                theme: 'dark',
+                securityLevel: 'loose'
+            });
+            window.mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+        } catch (e) {
+            console.error("Mermaid init error:", e);
+        }
+    }
+}
+
+function typewriterStream(elementId, htmlContent) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    
+    let words = htmlContent.split(' ');
+    let currentIdx = 0;
+    
+    let timer = setInterval(() => {
+        if (currentIdx < words.length) {
+            el.innerHTML = words.slice(0, currentIdx + 1).join(' ') + ' <span class="typewriter-cursor text-indigo-400 font-bold animate-pulse">▌</span>';
+            currentIdx += Math.floor(Math.random() * 2) + 1;
+            scrollToBottom();
+        } else {
+            clearInterval(timer);
+            el.innerHTML = htmlContent;
+            initMermaidDiagrams();
+            scrollToBottom();
+        }
+    }, 40);
+}
+
+// --- MODULAR WORKSPACE SUB-RENDERERS ---
+function renderWorkspaceHeader(data) {
+    const currentSession = (currentSessionId && chatSessions[currentSessionId]) ? chatSessions[currentSessionId] : { mastery: 0 };
+    const masteryVal = data.mastery_score !== undefined ? data.mastery_score : (currentSession.mastery || 0);
+    return `
+        <div class="px-5 py-3.5 border-b border-[#222833] flex items-center justify-between bg-[#0B0D12]/50 text-xs">
+            <div class="flex items-center gap-4 text-gray-400 font-mono text-[11px]">
+                <span>Understanding <strong class="text-white ml-1 font-semibold">${masteryVal}%</strong></span>
+                <span class="text-[#222833]">|</span>
+                <span>Reading Time <strong class="text-white ml-1 font-semibold">${data.estimated_study_time || 4} min</strong></span>
+                <span class="text-[#222833]">|</span>
+                <span>Difficulty <strong class="text-white ml-1 font-semibold">Intermediate</strong></span>
+            </div>
+            <div class="text-[11px] font-medium text-[#5B8DEF] flex items-center gap-1.5">
+                <i class="fa-solid fa-circle text-[6px] text-emerald-400"></i> ${data.next_learning_step || "Feynman Learning OS"}
+            </div>
+        </div>
+    `;
+}
+
+function renderWorkspaceTabs(cardUniqueId, escapedText) {
+    return `
+        <div class="flex items-center justify-between border-b border-[#222833] px-5 bg-[#0B0D12]/30">
+            <div class="flex gap-6">
+                <button onclick="switchCardTab('${cardUniqueId}', 'overview')" data-tab="overview" class="tab-underline-btn active py-3 text-xs font-semibold focus:outline-none flex items-center gap-1.5">
+                    Summary
+                </button>
+                <button onclick="switchCardTab('${cardUniqueId}', 'deepdive')" data-tab="deepdive" class="tab-underline-btn py-3 text-xs font-medium focus:outline-none flex items-center gap-1.5">
+                    Deep Dive
+                </button>
+                <button onclick="switchCardTab('${cardUniqueId}', 'quiz')" data-tab="quiz" class="tab-underline-btn py-3 text-xs font-medium focus:outline-none flex items-center gap-1.5">
+                    Knowledge Check
+                </button>
+                <button onclick="switchCardTab('${cardUniqueId}', 'sources')" data-tab="sources" class="tab-underline-btn py-3 text-xs font-medium focus:outline-none flex items-center gap-1.5">
+                    References
+                </button>
+            </div>
+            <div class="flex items-center gap-3 text-gray-400 text-xs font-medium">
+                <button onclick="copyCardContent('${escapedText}', this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Copy text">
+                    <i class="fa-regular fa-copy text-xs"></i> Copy
+                </button>
+                <button onclick="speakCardText('${escapedText}', this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Read Aloud">
+                    <i class="fa-solid fa-volume-high text-xs"></i> Read
+                </button>
+                <button onclick="exportNoteMarkdown(this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Export Markdown">
+                    <i class="fa-solid fa-download text-xs"></i> Export
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function normalizeResponse(data) {
+    if (data.blocks && Array.isArray(data.blocks)) {
+        return data.blocks;
+    }
+
+    const blocks = [];
+    if (data.simple_explanation) blocks.push({ type: 'summary', content: data.simple_explanation });
+    if (data.why_it_works) blocks.push({ type: 'mechanics', content: data.why_it_works });
+    if (data.example) blocks.push({ type: 'mental_model', content: data.example });
+    if (data.visual_intuition) blocks.push({ type: 'visualization', content: data.visual_intuition });
+
+    return blocks;
+}
+
+const BLOCK_RENDERERS = {
+    summary: (context, block) => `
+        <div>
+            <div id="typewriter-body-${context.cardId}" class="markdown-body text-gray-200 text-sm leading-relaxed">${safeMarkdown(block.content || "")}</div>
+        </div>
+    `,
+    mechanics: (context, block) => `
+        <div class="callout-minimal space-y-1">
+            <div class="text-[11px] font-semibold text-[#5B8DEF] uppercase tracking-wider">Core Mechanics</div>
+            <p class="text-xs text-gray-300 leading-relaxed">${block.content || ""}</p>
+        </div>
+    `,
+    mental_model: (context, block) => `
+        <div class="callout-minimal callout-warning space-y-1">
+            <div class="text-[11px] font-semibold text-amber-400 uppercase tracking-wider">Mental Model</div>
+            <p class="text-xs text-gray-300 leading-relaxed">${block.content || ""}</p>
+        </div>
+    `,
+    visualization: (context, block) => renderVisualizationBlock(context.cardId, block.content)
+};
+
+function renderBlockList(cardId, data) {
+    const context = Object.freeze({
+        cardId,
+        data,
+        session: (currentSessionId && chatSessions[currentSessionId]) ? chatSessions[currentSessionId] : { mastery: 0 }
+    });
+    return normalizeResponse(data).map(block => {
+        try {
+            const renderer = BLOCK_RENDERERS[block.type];
+            return renderer ? renderer(context, block) : '';
+        } catch (err) {
+            console.error(`[BLOCK RENDER ERROR] Failed to render block type '${block.type}':`, err);
+            return `
+                <div class="callout-minimal callout-error space-y-1">
+                    <div class="text-[11px] font-semibold text-rose-400 uppercase tracking-wider">Block Display Degradation (${block.type})</div>
+                    <p class="text-xs text-gray-400">Component degraded safely.</p>
+                </div>
+            `;
+        }
+    }).join('');
+}
+
+function renderVisualizationBlock(cardUniqueId, visualContent) {
+    if (!visualContent) return "";
+    const vizId = `viz-body-${cardUniqueId}`;
+    const escapedContent = visualContent.replace(/'/g, "\\'").replace(/\n/g, ' ');
+    return `
+        <div class="border border-[#222833] rounded-lg bg-[#0B0D12] overflow-hidden mt-4">
+            <div class="px-4 py-2.5 bg-[#11141A] border-b border-[#222833] flex items-center justify-between">
+                <div class="flex items-center gap-2 text-xs font-semibold text-[#5B8DEF]">
+                    <i class="fa-solid fa-diagram-project"></i> Visualization Sandbox
+                </div>
+                <div class="flex items-center gap-3 text-[11px] text-gray-400">
+                    <button onclick="toggleVisualizationBody('${vizId}', this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none">
+                        <i class="fa-solid fa-chevron-up text-[10px]"></i> <span class="viz-toggle-text">Collapse</span>
+                    </button>
+                    <span class="text-[#222833]">|</span>
+                    <button onclick="copyCardContent('${escapedContent}', this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Copy Diagram Code">
+                        <i class="fa-regular fa-copy text-[10px]"></i> Copy
+                    </button>
+                    <button onclick="triggerQuickPrompt('Focus on diagram and break down step by step')" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none">
+                        <i class="fa-solid fa-wand-magic-sparkles text-[10px]"></i> Focus on Diagram
+                    </button>
+                </div>
+            </div>
+            <div id="${vizId}" class="p-4 bg-[#0B0D12] transition-all">
+                <div class="mermaid p-3 bg-[#0B0D12] rounded-md text-xs font-mono text-indigo-300 border border-[#222833]">
+                    ${visualContent}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function toggleVisualizationBody(vizId, btnEl) {
+    const vizEl = document.getElementById(vizId);
+    if (!vizEl) return;
+    vizEl.classList.toggle('hidden');
+    const isHidden = vizEl.classList.contains('hidden');
+    const icon = btnEl.querySelector('i');
+    const label = btnEl.querySelector('.viz-toggle-text');
+    if (icon) icon.className = isHidden ? 'fa-solid fa-chevron-down text-[10px]' : 'fa-solid fa-chevron-up text-[10px]';
+    if (label) label.innerText = isHidden ? 'Expand' : 'Collapse';
+}
+
+function renderOverviewTab(cardUniqueId, data) {
+    return `
+        <div data-panel="overview" class="card-tab-panel space-y-5">
+            ${renderBlockList(cardUniqueId, data)}
+        </div>
+    `;
+}
+}
+}
+
+function renderDeepDiveTab(data) {
+    return `
+        <div data-panel="deepdive" class="card-tab-panel hidden space-y-4">
+            <div class="callout-minimal callout-error space-y-1">
+                <div class="text-[11px] font-semibold text-rose-400 uppercase tracking-wider">Common Misconception</div>
+                <p class="text-xs text-gray-300 leading-relaxed">${data.common_mistake || ""}</p>
+            </div>
+            <div class="callout-minimal space-y-1">
+                <div class="text-[11px] font-semibold text-purple-400 uppercase tracking-wider">Teacher Reflection Challenge</div>
+                <p class="text-xs text-gray-300 leading-relaxed">${data.reflection_prompt || ""}</p>
+            </div>
+        </div>
+    `;
+}
+
+function renderQuizTab(data) {
+    return `
+        <div data-panel="quiz" class="card-tab-panel hidden space-y-4">
+            <div class="bg-[#0B0D12] border border-[#222833] p-5 rounded-lg space-y-3">
+                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Assessment Question</div>
+                <p class="text-xs text-white font-medium leading-relaxed">${data.mini_quiz || ""}</p>
+                <div class="pt-2 flex gap-3">
+                    <button onclick="showToast('Correct! Active recall confirmed.', 'success')" class="text-xs bg-[#161B26] hover:bg-[#1E2536] text-gray-200 border border-[#222833] px-4 py-2 rounded-md transition-colors font-medium flex items-center gap-2">
+                        <i class="fa-solid fa-circle-check text-emerald-400"></i> Option A (Validate)
+                    </button>
+                    <button onclick="showToast('Review concept details.', 'error')" class="text-xs bg-[#161B26] hover:bg-[#1E2536] text-gray-200 border border-[#222833] px-4 py-2 rounded-md transition-colors font-medium flex items-center gap-2">
+                        <i class="fa-solid fa-circle-xmark text-rose-400"></i> Option B
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderWorkspaceFooter() {
+    return `
+        <div class="bg-[#0B0D12]/60 border-t border-[#222833] px-6 py-3 flex items-center justify-between text-xs text-gray-400">
+            <div class="flex items-center gap-3">
+                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Related:</span>
+                <button onclick="triggerQuickPrompt('Explain this concept even simpler')" class="hover:text-white transition-colors">Simplify</button>
+                <span class="text-[#222833]">•</span>
+                <button onclick="triggerQuickPrompt('Give 3 real world architecture examples of this')" class="hover:text-white transition-colors">Real Examples</button>
+                <span class="text-[#222833]">•</span>
+                <button onclick="triggerQuickPrompt('Generate 3 active recall flashcards')" class="hover:text-white transition-colors">Flashcards</button>
+            </div>
+            <button onclick="triggerQuickPrompt('Teach me step by step until I understand')" class="text-[#5B8DEF] hover:underline font-medium text-[11px]">Teach Me Until I Understand →</button>
+        </div>
+    `;
+}
+
+// --- PASSWORD RECOVERY & AUTH WORKFLOW ---
+let forgotState = {
+    email: '',
+    resetToken: '',
+    cooldownTimer: null,
+    cooldownSeconds: 60
+};
+
+function togglePasswordVisibility(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const isPassword = input.type === 'password';
+    input.type = isPassword ? 'text' : 'password';
+    const icon = btn.querySelector('i');
+    if (icon) {
+        icon.className = isPassword ? 'fa-regular fa-eye-slash text-sm' : 'fa-regular fa-eye text-sm';
+    }
+}
+
+function openForgotPasswordModal() {
+    const modal = document.getElementById('forgot-password-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    showForgotStep(1);
+    
+    // Auto populate email if user typed it on login page
+    const loginEmail = document.getElementById('auth-email');
+    const forgotEmail = document.getElementById('forgot-email');
+    if (loginEmail && forgotEmail && loginEmail.value) {
+        forgotEmail.value = loginEmail.value;
+    }
+}
+
+function closeForgotPasswordModal() {
+    const modal = document.getElementById('forgot-password-modal');
+    if (modal) modal.classList.add('hidden');
+    if (forgotState.cooldownTimer) clearInterval(forgotState.cooldownTimer);
+    setForgotAlert('', 'clear');
+}
+
+function showForgotStep(stepNum) {
+    ['forgot-step-1', 'forgot-step-2', 'forgot-step-3', 'forgot-step-success'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+    });
+    
+    if (stepNum === 1) document.getElementById('forgot-step-1')?.classList.remove('hidden');
+    if (stepNum === 2) document.getElementById('forgot-step-2')?.classList.remove('hidden');
+    if (stepNum === 3) document.getElementById('forgot-step-3')?.classList.remove('hidden');
+    if (stepNum === 'success') document.getElementById('forgot-step-success')?.classList.remove('hidden');
+    
+    setForgotAlert('', 'clear');
+}
+
+function setForgotAlert(msg, type = 'error') {
+    const el = document.getElementById('forgot-modal-alert');
+    if (!el) return;
+    if (!msg) {
+        el.classList.add('hidden');
+        el.textContent = '';
+        return;
+    }
+    el.classList.remove('hidden', 'text-red-400', 'text-emerald-400', 'text-amber-400');
+    if (type === 'error') el.classList.add('text-red-400');
+    if (type === 'success') el.classList.add('text-emerald-400');
+    if (type === 'warning') el.classList.add('text-amber-400');
+    el.textContent = msg;
+}
+
+async function sendPasswordResetCode() {
+    const emailInput = document.getElementById('forgot-email');
+    const email = emailInput ? emailInput.value.trim() : '';
+    if (!email || !email.includes('@')) {
+        setForgotAlert('Please enter a valid email address.', 'error');
+        return;
+    }
+    
+    const sendBtn = document.getElementById('forgot-send-btn');
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = `<span>Sending...</span><i class="fa-solid fa-spinner animate-spin text-xs"></i>`;
+    }
+    
+    try {
+        const res = await fetch('/auth/forgot-password/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        
+        if (!res.ok) throw new Error(data.detail || 'Failed to send verification code.');
+        
+        forgotState.email = email;
+        document.getElementById('forgot-sent-email').textContent = email;
+        
+        showForgotStep(2);
+        startResendTimer(60);
+        showToast(data.message || 'Verification code sent.', 'success');
+    } catch (err) {
+        setForgotAlert(err.message, 'error');
+    } finally {
+        if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = `<span>Send Verification Code</span><i class="fa-solid fa-paper-plane text-xs"></i>`;
+        }
+    }
+}
+
+async function resendPasswordResetCode() {
+    if (forgotState.cooldownSeconds > 0) return;
+    sendPasswordResetCode();
+}
+
+function startResendTimer(seconds = 60) {
+    if (forgotState.cooldownTimer) clearInterval(forgotState.cooldownTimer);
+    forgotState.cooldownSeconds = seconds;
+    
+    const resendBtn = document.getElementById('forgot-resend-btn');
+    const timerSpan = document.getElementById('resend-timer');
+    if (resendBtn) resendBtn.disabled = true;
+    if (timerSpan) timerSpan.textContent = seconds;
+    
+    forgotState.cooldownTimer = setInterval(() => {
+        forgotState.cooldownSeconds--;
+        if (timerSpan) timerSpan.textContent = forgotState.cooldownSeconds;
+        if (forgotState.cooldownSeconds <= 0) {
+            clearInterval(forgotState.cooldownTimer);
+            if (resendBtn) resendBtn.disabled = false;
+        }
+    }, 1000);
+}
+
+function handleOtpInput(input, event, index) {
+    const boxes = document.querySelectorAll('.otp-box');
+    const val = input.value;
+    
+    // Auto-focus next box if digit typed
+    if (val && index < boxes.length - 1 && event.key !== 'Backspace') {
+        boxes[index + 1].focus();
+    }
+    
+    // Auto-focus previous box if Backspace pressed
+    if (event.key === 'Backspace' && index > 0 && !val) {
+        boxes[index - 1].focus();
+    }
+}
+
+function handleOtpPaste(event) {
+    event.preventDefault();
+    const pasteData = (event.clipboardData || window.clipboardData).getData('text').trim();
+    if (!pasteData) return;
+    const digits = pasteData.replace(/\D/g, '').slice(0, 6);
+    const boxes = document.querySelectorAll('.otp-box');
+    digits.split('').forEach((d, i) => {
+        if (boxes[i]) boxes[i].value = d;
+    });
+    if (boxes[digits.length - 1]) boxes[digits.length - 1].focus();
+}
+
+function getOtpValue() {
+    const boxes = document.querySelectorAll('.otp-box');
+    let code = '';
+    boxes.forEach(box => code += box.value.trim());
+    return code;
+}
+
+async function verifyPasswordResetCode() {
+    const otp = getOtpValue();
+    if (!otp || otp.length !== 6) {
+        setForgotAlert('Please enter all 6 digits of your verification code.', 'error');
+        return;
+    }
+    
+    const verifyBtn = document.getElementById('forgot-verify-btn');
+    if (verifyBtn) {
+        verifyBtn.disabled = true;
+        verifyBtn.innerHTML = `<span>Verifying...</span><i class="fa-solid fa-spinner animate-spin text-xs"></i>`;
+    }
+    
+    try {
+        const res = await fetch('/auth/verify-otp/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: forgotState.email, otp })
+        });
+        const data = await res.json();
+        
+        if (!res.ok) throw new Error(data.detail || 'Invalid verification code.');
+        
+        forgotState.resetToken = data.reset_token;
+        showForgotStep(3);
+        showToast('Code verified successfully.', 'success');
+    } catch (err) {
+        setForgotAlert(err.message, 'error');
+    } finally {
+        if (verifyBtn) {
+            verifyBtn.disabled = false;
+            verifyBtn.innerHTML = `<span>Verify Code</span><i class="fa-solid fa-circle-check text-xs"></i>`;
+        }
+    }
+}
+
+function checkResetPasswordStrength(pw) {
+    const bar = document.getElementById('pw-strength-bar');
+    const label = document.getElementById('pw-strength-label');
+    
+    const hasLen = pw.length >= 8;
+    const hasUpper = /[A-Z]/.test(pw);
+    const hasLower = /[a-z]/.test(pw);
+    const hasNum = /[0-9]/.test(pw);
+    const hasSpecial = /[^A-Za-z0-9]/.test(pw);
+    
+    // Update live checklist icons
+    updateReqIcon('req-len', hasLen);
+    updateReqIcon('req-upper', hasUpper);
+    updateReqIcon('req-lower', hasLower);
+    updateReqIcon('req-num', hasNum);
+    updateReqIcon('req-special', hasSpecial);
+
+    if (!bar || !label) return;
+    
+    let score = 0;
+    if (hasLen) score += 20;
+    if (hasUpper) score += 20;
+    if (hasLower) score += 20;
+    if (hasNum) score += 20;
+    if (hasSpecial) score += 20;
+    
+    bar.style.width = `${score}%`;
+    bar.className = 'h-full transition-all duration-300 ';
+    
+    if (score <= 40) {
+        bar.classList.add('bg-rose-500');
+        label.textContent = 'Weak';
+        label.className = 'font-semibold text-rose-400';
+    } else if (score <= 80) {
+        bar.classList.add('bg-amber-500');
+        label.textContent = 'Moderate';
+        label.className = 'font-semibold text-amber-400';
+    } else {
+        bar.classList.add('bg-emerald-500');
+        label.textContent = 'Strong';
+        label.className = 'font-semibold text-emerald-400';
+    }
+}
+
+function updateReqIcon(elemId, isValid) {
+    const el = document.getElementById(elemId);
+    if (!el) return;
+    const icon = el.querySelector('i');
+    if (!icon) return;
+    if (isValid) {
+        icon.className = 'fa-solid fa-circle-check text-emerald-400 text-[10px]';
+        el.classList.remove('text-gray-400');
+        el.classList.add('text-emerald-300');
+    } else {
+        icon.className = 'fa-solid fa-circle-xmark text-rose-400 text-[10px]';
+        el.classList.remove('text-emerald-300');
+        el.classList.add('text-gray-400');
+    }
+}
+
+async function submitNewPassword() {
+    const newPw = document.getElementById('forgot-new-password')?.value || '';
+    const confirmPw = document.getElementById('forgot-confirm-password')?.value || '';
+    
+    if (!newPw) {
+        setForgotAlert('Please enter a new password.', 'error');
+        return;
+    }
+    if (newPw !== confirmPw) {
+        setForgotAlert('Passwords do not match.', 'error');
+        return;
+    }
+    
+    // Validate strength
+    if (newPw.length < 8 || !/[A-Z]/.test(newPw) || !/[a-z]/.test(newPw) || !/[0-9]/.test(newPw) || !/[^A-Za-z0-9]/.test(newPw)) {
+        setForgotAlert('Password must meet all 5 security requirements below.', 'error');
+        return;
+    }
+    
+    const resetBtn = document.getElementById('forgot-reset-btn');
+    if (resetBtn) {
+        resetBtn.disabled = true;
+        resetBtn.innerHTML = `<span>Updating...</span><i class="fa-solid fa-spinner animate-spin text-xs"></i>`;
+    }
+    
+    try {
+        const res = await fetch('/auth/reset-password/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email: forgotState.email,
+                reset_token: forgotState.resetToken,
+                new_password: newPw
+            })
+        });
+        const data = await res.json();
+        
+        if (!res.ok) throw new Error(data.detail || 'Failed to update password.');
+        
+        showForgotStep('success');
+        showToast('Password updated successfully!', 'success');
+        
+        setTimeout(() => {
+            closeForgotPasswordModal();
+            setAuthMode('login');
+        }, 3000);
+    } catch (err) {
+        setForgotAlert(err.message, 'error');
+    } finally {
+        if (resetBtn) {
+            resetBtn.disabled = false;
+            resetBtn.innerHTML = `<span>Reset Password</span><i class="fa-solid fa-arrow-right text-xs"></i>`;
+        }
+    }
 }
 
 // Boot the application

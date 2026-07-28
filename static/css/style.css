@@ -1,35 +1,48 @@
-/* --- DESIGN SYSTEM STYLING --- */
+/* --- LINEAR / NOTION / ANTHROPIC CLAUDE DESIGN SYSTEM STYLING --- */
+
+:root {
+    --bg-main: #0B0D12;
+    --surface-card: #11141A;
+    --border-subtle: #222833;
+    --text-primary: #F5F5F5;
+    --text-secondary: #9CA3AF;
+    --accent-linear: #5B8DEF;
+}
 
 body {
-    background-color: #0A0D14;
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     overflow-x: hidden;
 }
 
 /* Custom Typography settings */
 h1, h2, h3, h4, h5, h6, .font-display {
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Outfit', 'Inter', sans-serif;
+    letter-spacing: -0.02em;
 }
 
 /* Custom Scrollbar styling - thin and edge aligned */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
 }
 ::-webkit-scrollbar-track {
     background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-    background: #1F293D;
-    border-radius: 8px;
+    background: #222833;
+    border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #313E5C;
+    background: #3B465E;
 }
 
 /* Custom Markdown parsing layout adjustments inside chat bubbles */
 .markdown-body {
     font-size: 0.875rem;
-    line-height: 1.6;
+    line-height: 1.65;
+    color: #E5E7EB;
 }
 .markdown-body p {
     margin-bottom: 0.75rem;
@@ -49,100 +62,81 @@ h1, h2, h3, h4, h5, h6, .font-display {
     margin-bottom: 0.75rem;
 }
 .markdown-body code {
-    background-color: #0A0D14;
+    background-color: #0B0D12;
     padding: 0.15rem 0.35rem;
     border-radius: 0.25rem;
-    font-family: monospace;
-    font-size: 0.85em;
-    color: #F87171;
-    border: 1px solid #1F293D;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.82em;
+    color: #5B8DEF;
+    border: 1px solid #222833;
 }
 .markdown-body pre {
-    background-color: #0A0D14;
+    background-color: #0B0D12;
     padding: 1rem;
-    border-radius: 0.75rem;
+    border-radius: 0.5rem;
     overflow-x: auto;
     margin-bottom: 0.75rem;
-    border: 1px solid #1F293D;
+    border: 1px solid #222833;
 }
 .markdown-body pre code {
     background: transparent;
     padding: 0;
     color: #E2E8F0;
     border: none;
-    font-size: 0.875rem;
-}
-.markdown-body table {
-    width: 100%;
-    margin-bottom: 1rem;
-    border-collapse: collapse;
-    font-size: 0.8rem;
-}
-.markdown-body th, .markdown-body td {
-    padding: 0.5rem 0.75rem;
-    border: 1px solid #1F293D;
-    text-align: left;
-}
-.markdown-body th {
-    background-color: #0F1422;
-    color: #FFFFFF;
+    font-size: 0.85rem;
 }
 
-/* Siri Voice Orb keyframe animations */
-@keyframes breathing-pulse {
-    0%, 100% {
-        transform: scale(1);
-        box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
-    }
-    50% {
-        transform: scale(1.08);
-        box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
-    }
+/* Minimalist Left-Border Callout Styling (Claude / Notion style) */
+.callout-minimal {
+    border-left: 2px solid var(--accent-linear);
+    background-color: var(--surface-card);
+    padding: 0.875rem 1.125rem;
+    border-radius: 0 0.5rem 0.5rem 0;
+    margin: 0.75rem 0;
 }
-.voice-listening {
-    animation: breathing-pulse 1.5s infinite ease-in-out;
-    background: cubic-bezier(0.4, 0, 0.2, 1) !important;
-    border-color: #6366F1 !important;
-    color: #6366F1 !important;
+.callout-warning {
+    border-left-color: #F59E0B;
+}
+.callout-error {
+    border-left-color: #EF4444;
 }
 
-/* Custom spring transitions for cards and elements */
-.spring-hover {
-    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s ease;
+/* Minimalist Tab Underline Animations */
+.tab-underline-btn {
+    position: relative;
+    color: var(--text-secondary);
+    transition: color 0.15s ease;
 }
-.spring-hover:hover {
-    transform: translateY(-4px) scale(1.02);
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+.tab-underline-btn:hover {
+    color: var(--text-primary);
+}
+.tab-underline-btn.active {
+    color: var(--accent-linear);
+    font-weight: 600;
+}
+.tab-underline-btn.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: var(--accent-linear);
+    border-radius: 2px 2px 0 0;
 }
 
-/* Sidebar chat list states */
+/* Sidebar chat list states - Linear minimal style */
 .chat-item-active {
-    background-color: #121829;
-    border-left: 3px solid #6366F1;
+    background-color: #161B26;
+    border-left: 2px solid #5B8DEF;
 }
 .chat-item {
-    border-left: 3px solid transparent;
-    transition: all 0.2s ease;
+    border-left: 2px solid transparent;
+    transition: background 0.15s ease;
 }
 .chat-item:hover:not(.chat-item-active) {
-    background-color: #171E30;
+    background-color: #131722;
 }
-
-/* SVG Knowledge Node details */
-.knowledge-node {
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-.knowledge-node:hover {
-    transform: scale(1.1);
-}
-
-/* Heatmap Calendar Colors */
-.heatmap-level-0 { background-color: #111622; }
-.heatmap-level-1 { background-color: #1E293B; }
-.heatmap-level-2 { background-color: #312E81; }
-.heatmap-level-3 { background-color: #4338CA; }
-.heatmap-level-4 { background-color: #4F46E5; }
 
 /* Custom Toasts slide-in-out */
 @keyframes slide-in {
@@ -150,30 +144,17 @@ h1, h2, h3, h4, h5, h6, .font-display {
     to { transform: translateX(0); }
 }
 .toast-slide-in {
-    animation: slide-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    animation: slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Typist cursor representation */
-.typing-dot {
-    width: 6px;
-    height: 6px;
-    background-color: #6366F1;
-    border-radius: 50%;
-    animation: typing-bounce 1.4s infinite ease-in-out both;
+/* Blinking Cursor for Typewriter Stream */
+@keyframes cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
 }
-.typing-dot:nth-child(1) { animation-delay: -0.32s; }
-.typing-dot:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes typing-bounce {
-    0%, 80%, 100% { transform: scale(0); }
-    40% { transform: scale(1); }
-}
-
-/* Whiteboard Staggered Bounce Entry Animation */
-@keyframes whiteboard-bounce-in {
-    from { opacity: 0; transform: translateY(16px) scale(0.97); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.whiteboard-animate-item {
-    animation: whiteboard-bounce-in 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.2) forwards;
+.typewriter-cursor {
+    display: inline-block;
+    color: #5B8DEF;
+    margin-left: 2px;
+    animation: cursor-blink 0.8s infinite;
 }

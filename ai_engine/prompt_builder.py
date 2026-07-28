@@ -1,0 +1,17 @@
+"""
+Feynman Cognitive Engine — Prompt Builder Module
+Assembles system instructions, study modes, student misconceptions, and RAG ground-truth contexts from a LearningPlan.
+"""
+
+from .prompts import FEYNMAN_COGNITIVE_SYSTEM_PROMPT
+from .planner import LearningPlan
+
+class PromptBuilder:
+    @staticmethod
+    def build_system_prompt(plan: LearningPlan, mistakes_text: str, context_text: str) -> str:
+        study_mode_formatted = f"{plan.teaching_style} (Difficulty: {plan.difficulty})"
+        return FEYNMAN_COGNITIVE_SYSTEM_PROMPT.format(
+            study_mode=study_mode_formatted,
+            mistakes_text=mistakes_text or "None recorded yet.",
+            context_text=context_text or "No external PDF context retrieved."
+        )

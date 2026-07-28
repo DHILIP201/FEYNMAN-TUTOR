@@ -63,6 +63,18 @@ class ChatMessage(Base):
 
     session = relationship("ChatSession", back_populates="messages")
 
+class PasswordResetOTP(Base):
+    __tablename__ = "password_resets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, index=True, nullable=False)
+    otp_hash = Column(String, nullable=False)
+    reset_token = Column(String, unique=True, index=True, nullable=True)
+    attempts = Column(Integer, default=0, nullable=False)
+    is_used = Column(Boolean, default=False, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 # Create tables
 def init_db():
     Base.metadata.create_all(bind=engine)
