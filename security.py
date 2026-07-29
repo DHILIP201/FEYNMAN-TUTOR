@@ -3,7 +3,11 @@ import re
 import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
-import jwt
+try:
+    import jwt
+    JWTError = jwt.PyJWTError
+except Exception:
+    from jose import jwt, JWTError
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -76,7 +80,7 @@ def decode_access_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except jwt.PyJWTError:
+    except (JWTError, Exception):
         return None
 
 async def get_current_user(
