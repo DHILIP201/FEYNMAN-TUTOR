@@ -273,8 +273,9 @@ async def signup(user_data: UserSignup, db: Session = Depends(get_db)):
             detail="Password must be at least 8 characters and include uppercase, lowercase, numbers, and symbols."
         )
         
+    clean_email = user_data.email.strip().lower()
     # Check if user already exists
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    existing_user = db.query(User).filter(User.email == clean_email).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -288,7 +289,7 @@ async def signup(user_data: UserSignup, db: Session = Depends(get_db)):
     
     new_user = User(
         name=user_data.name,
-        email=user_data.email,
+        email=clean_email,
         hashed_password=hashed_pw,
         email_verified=is_dev
     )
@@ -384,8 +385,9 @@ def resend_verification(request: ResendVerificationRequest, db: Session = Depend
 
 @app.post("/auth/login/")
 async def login(credentials: UserLogin, db: Session = Depends(get_db)):
+    clean_email = credentials.email.strip().lower()
     # Check user credentials
-    user = db.query(User).filter(User.email == credentials.email).first()
+    user = db.query(User).filter(User.email == clean_email).first()
     if not user or not verify_password(credentials.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

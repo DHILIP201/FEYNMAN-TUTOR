@@ -74,13 +74,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    if isinstance(encoded_jwt, bytes):
+        encoded_jwt = encoded_jwt.decode('utf-8')
     return encoded_jwt
 
 def decode_access_token(token: str) -> Optional[dict]:
     try:
+        if isinstance(token, bytes):
+            token = token.decode('utf-8')
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except (JWTError, Exception):
+    except Exception as e:
+        print(f"[JWT DECODE ERROR] {e}")
         return None
 
 async def get_current_user(
