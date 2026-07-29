@@ -35,7 +35,6 @@ function resolveURL(endpoint) {
     return endpoint;
 }
 
-// --- HELPER: API REQUEST WITH JWT AUTH ---
 async function fetchAPI(endpoint, options = {}) {
     const token = localStorage.getItem('feynman_token');
     if (!options.headers) options.headers = {};
@@ -48,22 +47,12 @@ async function fetchAPI(endpoint, options = {}) {
     
     try {
         const response = await fetch(resolveURL(endpoint), options);
-        if (response.status === 401 && !endpoint.includes('/auth/')) {
-            console.warn("Session token expired, attempting background session refresh...");
-            // Re-authenticate guest or notify user softly without breaking current workspace view
-            const guestRes = await fetch(resolveURL('/auth/guest/'), { method: 'POST' });
-            if (guestRes.ok) {
-                const guestData = await guestRes.json();
-                if (guestData.access_token) {
-                    localStorage.setItem('feynman_token', guestData.access_token);
-                    options.headers['Authorization'] = `Bearer ${guestData.access_token}`;
-                    return await fetch(resolveURL(endpoint), options);
-                }
-            }
+        if (response.status === 401) {
+            console.warn(`[API 401] Unauthorized access on ${endpoint}`);
         }
         return response;
     } catch (err) {
-        console.error("API Error:", err);
+        console.error("API Request Error:", err);
         throw err;
     }
 }

@@ -386,9 +386,17 @@ def resend_verification(request: ResendVerificationRequest, db: Session = Depend
 @app.post("/auth/login/")
 async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     clean_email = credentials.email.strip().lower()
-    # Check user credentials
     user = db.query(User).filter(User.email == clean_email).first()
-    if not user or not verify_password(credentials.password, user.hashed_password):
+    if not user:
+        print(f"[AUTH LOGIN FAIL] User not found: {clean_email}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="The email or password you entered is incorrect."
+        )
+        
+    pw_match = verify_password(credentials.password, user.hashed_password)
+    if not pw_match:
+        print(f"[AUTH LOGIN FAIL] Password mismatch for user: {clean_email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="The email or password you entered is incorrect."
