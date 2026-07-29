@@ -812,11 +812,15 @@ async def upload_document(
         # Feed text pages list to RAG module
         add_document_to_rag(session_id, pages_data)
         
-        # Save PDF copy locally to serve for viewing
-        os.makedirs("static/uploads", exist_ok=True)
-        pdf_path = f"static/uploads/{session_id}.pdf"
-        with open(pdf_path, "wb") as f:
-            f.write(contents)
+        # Save PDF copy locally or to /tmp for viewing
+        upload_dir = "/tmp/uploads" if os.getenv("VERCEL") == "1" else "static/uploads"
+        try:
+            os.makedirs(upload_dir, exist_ok=True)
+            pdf_path = os.path.join(upload_dir, f"{session_id}.pdf")
+            with open(pdf_path, "wb") as f:
+                f.write(contents)
+        except Exception as save_err:
+            print(f"[UPLOAD WARNING] Could not write PDF copy to disk: {save_err}")
             
         # Save updates to DB
         db.commit()
