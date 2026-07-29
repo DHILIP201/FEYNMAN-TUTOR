@@ -284,7 +284,7 @@ async def signup(user_data: UserSignup, db: Session = Depends(get_db)):
     # Hash password and create user
     hashed_pw = get_password_hash(user_data.password)
     auth_mode = os.getenv("AUTH_MODE", "development").lower()
-    is_dev = auth_mode == "development"
+    is_dev = auth_mode == "development" or not os.getenv("SMTP_USER")
     
     new_user = User(
         name=user_data.name,
@@ -392,12 +392,16 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
             detail="The email or password you entered is incorrect."
         )
     
-    # Check if email is verified
+    # Auto-verify email if SMTP user is not set or in development mode
     if not user.email_verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Please verify your email before signing in."
-        )
+        if not os.getenv("SMTP_USER"):
+            user.email_verified = True
+            db.commit()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Please verify your email before signing in."
+            )
     
     # Update last login
     user.last_login = datetime.utcnow()
@@ -953,7 +957,10 @@ async def tutor_chat(
         })
         
     if not context_text:
-        context_text = "No relevant document chunks found. Answer from your knowledge but note the student should upload a PDF for grounded responses."
+        if session.has_doc:
+            context_text = f"The student HAS uploaded a PDF document titled '{session.title}' for this study session. Explain the topic comprehensively using pedagogical best practices."
+        else:
+            context_text = "No document attached to this session. Answer from your knowledge and guide the student."
 
     # STAGE 1 & 2: Formulate LearningPlan & Build System Prompt via FeynmanCognitiveEngine
     learning_plan = feynman_engine.plan_learning_strategy(
