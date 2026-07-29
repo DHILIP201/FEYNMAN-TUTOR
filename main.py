@@ -841,6 +841,19 @@ async def upload_document(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
 
+from fastapi.responses import FileResponse
+
+@app.get("/static/uploads/{filename}")
+async def serve_uploaded_pdf(filename: str):
+    upload_dir = "/tmp/uploads" if os.getenv("VERCEL") == "1" else "static/uploads"
+    file_path = os.path.join(upload_dir, filename)
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="application/pdf")
+    static_fallback = os.path.join("static/uploads", filename)
+    if os.path.exists(static_fallback):
+        return FileResponse(static_fallback, media_type="application/pdf")
+    raise HTTPException(status_code=404, detail="PDF document not found")
+
 @app.post("/tutor-chat/")
 async def tutor_chat(
     request: ChatRequest,
