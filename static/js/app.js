@@ -1561,9 +1561,10 @@ function triggerProgressiveHint() {
 function updateWhiteboardContent(content) {
     const canvas = document.getElementById('whiteboard-canvas');
     const emptyState = document.getElementById('whiteboard-empty-state');
+    const drawer = document.getElementById('whiteboard-drawer');
     if (!canvas) return;
     
-    emptyState.classList.add('hidden');
+    if (emptyState) emptyState.classList.add('hidden');
     canvas.innerHTML = `
         <div class="bg-[#0C0F17] border border-[#1B2233] p-4 rounded-xl whiteboard-animate-item shadow-lg" style="animation-delay: 0.1s;">
             <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1">
@@ -1575,8 +1576,7 @@ function updateWhiteboardContent(content) {
         </div>
     `;
     
-    // Automatically open whiteboard drawer
-    document.getElementById('whiteboard-drawer').classList.remove('hidden');
+    if (drawer) drawer.classList.remove('hidden');
 }
 
 function scrollToBottom() {
@@ -2011,33 +2011,27 @@ function toggleWhiteboard() {
     const drawer = document.getElementById('whiteboard-drawer');
     const emptyState = document.getElementById('whiteboard-empty-state');
     const canvas = document.getElementById('whiteboard-canvas');
+    if (!drawer) return;
     
     drawer.classList.toggle('hidden');
     
     if (!drawer.classList.contains('hidden')) {
-        // Seed visual chart if session exists
-        emptyState.classList.add('hidden');
-        canvas.innerHTML = `
-            <div class="bg-[#0C0F17] border border-[#1B2233] p-4 rounded-xl">
-                <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">Recursive Depth Visualizer</div>
-                <pre class="text-[10px] font-mono text-gray-400 leading-tight">
+        if (emptyState) emptyState.classList.add('hidden');
+        if (canvas) {
+            canvas.innerHTML = `
+                <div class="bg-[#0C0F17] border border-[#1B2233] p-4 rounded-xl">
+                    <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">Recursive Depth Visualizer</div>
+                    <pre class="text-[10px] font-mono text-gray-400 leading-tight">
 f(3)
  ├── f(2)
  │    ├── f(1) [Base case reached]
  │    └── f(1) [Returns 1]
  └── f(2)
       └── f(1) [Returns 1]
-                </pre>
-            </div>
-            <div class="bg-[#0C0F17] border border-[#1B2233] p-4 rounded-xl">
-                <div class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2">Execution Memory Stack</div>
-                <div class="space-y-1.5 mt-2">
-                    <div class="bg-emerald-500/10 border border-emerald-500/20 p-2 rounded text-[11px] text-emerald-300">Stack Frame 3: f(1) -> returns 1 [Top]</div>
-                    <div class="bg-indigo-500/10 border border-indigo-500/20 p-2 rounded text-[11px] text-indigo-300">Stack Frame 2: f(2) -> waiting</div>
-                    <div class="bg-[#111622] border border-[#1F293D] p-2 rounded text-[11px] text-gray-500">Stack Frame 1: f(3) -> waiting [Bottom]</div>
+                    </pre>
                 </div>
-            </div>
-        `;
+            `;
+        }
     }
 }
 
@@ -2250,11 +2244,50 @@ function initMermaidDiagrams() {
                 theme: 'dark',
                 securityLevel: 'loose'
             });
-            window.mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+            
+            document.querySelectorAll('.mermaid').forEach(async (el) => {
+                const graphDefinition = (el.textContent || '').trim();
+                if (!graphDefinition) return;
+                try {
+                    // Pre-parse to catch invalid syntax before rendering
+                    const valid = await window.mermaid.parse(graphDefinition).catch(() => false);
+                    if (valid) {
+                        await window.mermaid.run({ nodes: [el] }).catch(() => renderFallbackDiagram(el));
+                    } else {
+                        renderFallbackDiagram(el);
+                    }
+                } catch (err) {
+                    renderFallbackDiagram(el);
+                }
+            });
         } catch (e) {
             console.error("Mermaid init error:", e);
         }
     }
+}
+
+function renderFallbackDiagram(containerEl) {
+    if (!containerEl) return;
+    containerEl.className = "p-4 bg-[#0A0D14] rounded-lg border border-[#1E2536] space-y-3 my-2";
+    containerEl.innerHTML = `
+        <div class="flex items-center gap-2 text-xs font-semibold text-indigo-400">
+            <i class="fa-solid fa-sitemap"></i> Interactive Concept Blueprint
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+            <div class="p-3 bg-[#111622] border border-indigo-500/20 rounded-lg text-center shadow-sm">
+                <span class="text-[10px] uppercase tracking-wider text-indigo-400 font-bold block">1. Input / Foundation</span>
+                <span class="text-xs text-gray-300 font-medium">Core Problem Setup</span>
+            </div>
+            <div class="p-3 bg-[#111622] border border-purple-500/20 rounded-lg text-center shadow-sm">
+                <span class="text-[10px] uppercase tracking-wider text-purple-400 font-bold block">2. First Principles</span>
+                <span class="text-xs text-gray-300 font-medium">Feynman Logic Process</span>
+            </div>
+            <div class="p-3 bg-[#111622] border border-emerald-500/20 rounded-lg text-center shadow-sm">
+                <span class="text-[10px] uppercase tracking-wider text-emerald-400 font-bold block">3. Expected Output</span>
+                <span class="text-xs text-gray-300 font-medium">Mastery Outcome</span>
+            </div>
+        </div>
+    `;
 }
 
 function typewriterStream(elementId, htmlContent) {
