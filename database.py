@@ -4,7 +4,9 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./feynman.db")
+is_vercel = os.getenv("VERCEL") == "1"
+default_db_url = "sqlite:////tmp/feynman.db" if is_vercel else "sqlite:///./feynman.db"
+DATABASE_URL = os.getenv("DATABASE_URL", default_db_url)
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 

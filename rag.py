@@ -41,7 +41,8 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
 
 
 # Initialize local persistent ChromaDB client
-CHROMA_DB_PATH = "./chroma_db"
+is_vercel = os.getenv("VERCEL") == "1"
+CHROMA_DB_PATH = "/tmp/chroma_db" if is_vercel else "./chroma_db"
 os.makedirs(CHROMA_DB_PATH, exist_ok=True)
 chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 

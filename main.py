@@ -48,7 +48,12 @@ if not api_key:
     print("WARNING: GEMINI_API_KEY not found in .env file!")
 
 # Initialize new google.genai Client (singleton)
-gemini_client = genai.Client(api_key=api_key)
+try:
+    gemini_client = genai.Client(api_key=api_key) if api_key else None
+except Exception as e:
+    print(f"WARNING: Failed to init gemini_client on module load: {e}")
+    gemini_client = None
+
 AVAILABLE_CHAT_MODELS = ["gemini-2.5-flash"]
 
 # Full JSON schema for structured tutor responses
@@ -86,10 +91,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static and templates folders
-os.makedirs("static/css", exist_ok=True)
-os.makedirs("static/js", exist_ok=True)
-os.makedirs("templates", exist_ok=True)
+# Mount static and templates folders safely
+try:
+    os.makedirs("static/css", exist_ok=True)
+    os.makedirs("static/js", exist_ok=True)
+    os.makedirs("templates", exist_ok=True)
+except Exception:
+    pass
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -109,65 +117,23 @@ def startup_event():
     print("==========================================")
     api_key_env = os.getenv("GEMINI_API_KEY")
     print(f"API key loaded: {'YES' if api_key_env else 'NO'}")
-    print(f"Selected model: gemini-2.5-flash (failover cascade: gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro)")
+    print(f"Selected model: gemini-2.5-flash")
     print(f"AUTH_MODE: {os.getenv('AUTH_MODE', 'development')}")
-    print(f"Database: SQLite (feynman.db)")
     print("==========================================\n")
     
-    # --- GEMINI MODEL STARTUP VALIDATION ---
-    print("[STARTUP] Validating Gemini API and models...")
-    chat_model = "gemini-2.5-flash"
-    embed_model = "models/gemini-embedding-001"
-    
-    global AVAILABLE_CHAT_MODELS
-    try:
-        # Fetch available models list from key and determine allowed failovers
-        models_list = list(gemini_client.models.list())
-        names = [m.name for m in models_list]
-        supported = []
-        for candidate in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
-            if f"models/{candidate}" in names or candidate in names:
-                supported.append(candidate)
-        if supported:
-            AVAILABLE_CHAT_MODELS = supported
-        print(f"[STARTUP] Verified supported chat failover models: {AVAILABLE_CHAT_MODELS}")
-    except Exception as list_err:
-        print(f"[STARTUP WARNING] Failed to list models: {list_err}. Defaulting to ['gemini-2.5-flash']")
-        AVAILABLE_CHAT_MODELS = ["gemini-2.5-flash"]
-        
-    try:
-        # Validate chat model
-        print(f"[STARTUP] Checking chat model: {chat_model}...")
-        m_chat = gemini_client.models.get(model=chat_model)
-        print(f"[STARTUP] Chat model {chat_model} is available. Supported actions: {m_chat.supported_actions}")
-    except Exception as e:
-        print(f"\n[CRITICAL STARTUP ERROR] Failed to access chat model '{chat_model}': {e}")
-        print("Please check your GEMINI_API_KEY environment variable and API permissions.\n")
-        raise RuntimeError(f"Startup failed: Chat model '{chat_model}' is not accessible.")
-
-    try:
-        # Validate embedding model
-        print(f"[STARTUP] Checking embedding model: {embed_model}...")
-        m_embed = gemini_client.models.get(model=embed_model)
-        print(f"[STARTUP] Embedding model {embed_model} is available. Supported actions: {m_embed.supported_actions}")
-    except Exception as e:
-        print(f"\n[CRITICAL STARTUP ERROR] Failed to access embedding model '{embed_model}': {e}")
-        print("Please check your GEMINI_API_KEY environment variable and API permissions.\n")
-        raise RuntimeError(f"Startup failed: Embedding model '{embed_model}' is not accessible.")
-        
-    print("[STARTUP] Gemini API validation completed successfully!\n")
-    
     # Pre-seed Guest Demo PDF for View Source Document action
+    upload_dir = "/tmp/uploads" if os.getenv("VERCEL") == "1" else "static/uploads"
     try:
-        os.makedirs("static/uploads", exist_ok=True)
-        with open("static/uploads/session_rec.pdf", "wb") as f:
+        os.makedirs(upload_dir, exist_ok=True)
+        pdf_path = os.path.join(upload_dir, "session_rec.pdf")
+        with open(pdf_path, "wb") as f:
             f.write(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << >> /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Length 48 >>\nstream\nBT /F1 24 Tf 100 700 Td (Recursion Active Study Notes) Tj ET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f\n0000000009 00000 n\n0000000062 00000 n\n0000000121 00000 n\n0000000222 00000 n\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n321\n%%EOF\n")
     except Exception:
         pass
     
     # Pre-seed Guest Judge
-    db = SessionLocal()
     try:
+        db = SessionLocal()
         guest = db.query(User).filter(User.email == "guest@feynmantutor.local").first()
         if not guest:
             guest = User(
@@ -178,10 +144,12 @@ def startup_event():
             )
             db.add(guest)
             db.commit()
-    finally:
         db.close()
+    except Exception as e:
+        print(f"[STARTUP WARNING] DB pre-seed skipped: {e}")
         
-    threading.Thread(target=open_browser).start()
+    if os.getenv("VERCEL") != "1":
+        threading.Thread(target=open_browser).start()
 
 class TutorResponse(BaseModel):
     simple_explanation: str = Field(description="Feynman simple explanation, jargon-free, like explaining to a 10-year-old. Use markdown.")
