@@ -2437,8 +2437,6 @@ function renderOverviewTab(cardUniqueId, data) {
         </div>
     `;
 }
-}
-}
 
 function renderDeepDiveTab(data) {
     return `
