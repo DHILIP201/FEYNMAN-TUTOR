@@ -48,9 +48,18 @@ async function fetchAPI(endpoint, options = {}) {
     
     try {
         const response = await fetch(resolveURL(endpoint), options);
-        if (response.status === 401) {
-            signOut();
-            throw new Error("Session expired. Please log in again.");
+        if (response.status === 401 && !endpoint.includes('/auth/')) {
+            console.warn("Session token expired, attempting background session refresh...");
+            // Re-authenticate guest or notify user softly without breaking current workspace view
+            const guestRes = await fetch(resolveURL('/auth/guest/'), { method: 'POST' });
+            if (guestRes.ok) {
+                const guestData = await guestRes.json();
+                if (guestData.access_token) {
+                    localStorage.setItem('feynman_token', guestData.access_token);
+                    options.headers['Authorization'] = `Bearer ${guestData.access_token}`;
+                    return await fetch(resolveURL(endpoint), options);
+                }
+            }
         }
         return response;
     } catch (err) {
