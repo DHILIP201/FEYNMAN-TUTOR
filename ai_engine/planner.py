@@ -24,7 +24,11 @@ class LearningPlanner:
         difficulty = "Beginner" if current_mastery < 30 else ("Advanced" if current_mastery > 75 else "Intermediate")
         
         # Adaptive teaching style selection
-        if study_mode == "Exam":
+        user_msg_lower = user_message.lower()
+        if "step by step" in user_msg_lower or "teach me" in user_msg_lower:
+            teaching_style = "StepByStepIncremental (Provide 350-500 words breakdown across 3-4 numbered steps with a complete Mermaid diagram)"
+            estimated_time = 8
+        elif study_mode == "Exam":
             teaching_style = "RigorousProofAndEdgeCases"
             estimated_time = 6
         elif study_mode == "Interview":
