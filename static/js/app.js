@@ -1776,7 +1776,7 @@ function renderMessageUI(role, text, animate, imageObj = null) {
             const escapedSimpleText = rawSimpleText.replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, ' ');
 
             div.innerHTML = `
-                <img src="/static/images/feynman_logo.png" alt="Feynman AI" class="w-9 h-9 rounded-xl shadow-md border border-indigo-500/30 object-contain flex-shrink-0">
+                <img src="/static/images/feynman_logo.png?v=2" alt="Feynman AI" class="w-10 h-10 rounded-2xl object-contain bg-[#1A1F2E] p-1 shadow-lg border border-indigo-500/20 flex-shrink-0">
                 <div class="bg-[#11141A] border border-[#222833] rounded-2xl overflow-hidden shadow-xl max-w-[88%] w-full">
                     <div class="px-5 py-3 border-b border-[#222833] flex items-center justify-between bg-[#0B0D12]/40 text-xs">
                         <div class="flex items-center gap-2 font-semibold text-white">
