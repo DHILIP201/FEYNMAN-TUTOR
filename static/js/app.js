@@ -1776,9 +1776,7 @@ function renderMessageUI(role, text, animate, imageObj = null) {
             const escapedSimpleText = rawSimpleText.replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, ' ');
 
             div.innerHTML = `
-                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 text-white font-bold text-sm shadow-md border border-indigo-400/30">
-                    🤖
-                </div>
+                <img src="/static/images/feynman_logo.jpg" alt="Feynman AI" class="w-9 h-9 rounded-xl shadow-md border border-indigo-500/30 object-cover flex-shrink-0">
                 <div class="bg-[#11141A] border border-[#222833] rounded-2xl overflow-hidden shadow-xl max-w-[88%] w-full">
                     <div class="px-5 py-3 border-b border-[#222833] flex items-center justify-between bg-[#0B0D12]/40 text-xs">
                         <div class="flex items-center gap-2 font-semibold text-white">
@@ -2390,14 +2388,14 @@ function normalizeResponse(data) {
     }
 
     const blocks = [];
-    if (data.simple_explanation) blocks.push({ type: 'summary', content: data.simple_explanation });
+    if (data.simple_explanation) blocks.push({ type: 'explanation', content: data.simple_explanation });
     if (data.visual_intuition) blocks.push({ type: 'visualization', content: data.visual_intuition });
 
     return blocks;
 }
 
 const BLOCK_RENDERERS = {
-    summary: (context, block) => `
+    explanation: (context, block) => `
         <div>
             <div id="typewriter-body-${context.cardId}" class="markdown-body text-gray-200 text-sm leading-relaxed">${safeMarkdown(block.content || "")}</div>
         </div>
