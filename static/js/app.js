@@ -2383,18 +2383,26 @@ function renderWorkspaceTabs(cardUniqueId, escapedText) {
 }
 
 function normalizeResponse(data) {
-    if (data.blocks && Array.isArray(data.blocks)) {
-        return data.blocks;
+    const blocks = [];
+    const explanationContent = data.simple_explanation || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'summary' || b.type === 'explanation')?.content) : "");
+    if (explanationContent) {
+        blocks.push({ type: 'explanation', content: explanationContent });
     }
 
-    const blocks = [];
-    if (data.simple_explanation) blocks.push({ type: 'explanation', content: data.simple_explanation });
-    if (data.visual_intuition) blocks.push({ type: 'visualization', content: data.visual_intuition });
+    const vizContent = data.visual_intuition || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'visualization')?.content) : "");
+    if (vizContent) {
+        blocks.push({ type: 'visualization', content: vizContent });
+    }
 
     return blocks;
 }
 
 const BLOCK_RENDERERS = {
+    summary: (context, block) => `
+        <div>
+            <div id="typewriter-body-${context.cardId}" class="markdown-body text-gray-200 text-sm leading-relaxed">${safeMarkdown(block.content || "")}</div>
+        </div>
+    `,
     explanation: (context, block) => `
         <div>
             <div id="typewriter-body-${context.cardId}" class="markdown-body text-gray-200 text-sm leading-relaxed">${safeMarkdown(block.content || "")}</div>
