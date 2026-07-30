@@ -1772,25 +1772,48 @@ function renderMessageUI(role, text, animate, imageObj = null) {
                 `;
             }
             
-            const rawSimpleText = data.simple_explanation || "";
+            const rawSimpleText = data.simple_explanation || (typeof data === 'string' ? data : "");
             const escapedSimpleText = rawSimpleText.replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, ' ');
 
             div.innerHTML = `
-                <div class="w-8 h-8 rounded-lg bg-[#161B26] border border-[#222833] flex items-center justify-center flex-shrink-0 text-[#5B8DEF]">
-                    <i class="fa-solid fa-sparkles text-xs"></i>
+                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 text-white font-bold text-sm shadow-md border border-indigo-400/30">
+                    🤖
                 </div>
-                    <div class="bg-[#11141A] border border-[#222833] rounded-xl overflow-hidden shadow-lg">
-                        ${renderWorkspaceHeader(data)}
-                        ${renderWorkspaceTabs(cardUniqueId, escapedSimpleText)}
-                        
-                        <div class="p-6">
-                            ${renderOverviewTab(cardUniqueId, data)}
-                            ${renderDeepDiveTab(data)}
-                            ${renderQuizTab(data)}
-                            <div data-panel="sources" class="card-tab-panel hidden">${sourcesTag}</div>
+                <div class="bg-[#11141A] border border-[#222833] rounded-2xl overflow-hidden shadow-xl max-w-[88%] w-full">
+                    <div class="px-5 py-3 border-b border-[#222833] flex items-center justify-between bg-[#0B0D12]/40 text-xs">
+                        <div class="flex items-center gap-2 font-semibold text-white">
+                            <span>Feynman AI</span>
+                            <span class="text-[10px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full border border-indigo-500/20 font-mono">Tutor</span>
                         </div>
+                        <div class="flex items-center gap-3 text-gray-400 text-xs font-medium">
+                            <button onclick="copyCardContent('${escapedSimpleText}', this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Copy text">
+                                <i class="fa-regular fa-copy text-xs"></i> Copy
+                            </button>
+                            <button onclick="speakCardText('${escapedSimpleText}', this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Read Aloud">
+                                <i class="fa-solid fa-volume-high text-xs"></i> Read
+                            </button>
+                            <button onclick="exportNoteMarkdown(this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Export Markdown">
+                                <i class="fa-solid fa-download text-xs"></i> Export
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="p-5 space-y-4">
+                        ${renderOverviewTab(cardUniqueId, data)}
+                    </div>
 
-                        ${renderWorkspaceFooter()}
+                    <div class="bg-[#0B0D12]/60 border-t border-[#222833] px-5 py-3 flex items-center justify-between text-xs text-gray-400">
+                        <div class="flex items-center gap-2">
+                            <button onclick="triggerQuickPrompt('Explain this concept even simpler')" class="hover:text-white transition-colors bg-[#161B26] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300">
+                                💡 Simplify
+                            </button>
+                            <button onclick="triggerQuickPrompt('Give a real world analogy')" class="hover:text-white transition-colors bg-[#161B26] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300">
+                                🍕 Analogy
+                            </button>
+                        </div>
+                        <button onclick="triggerQuickPrompt('Teach me step by step until I understand')" class="text-indigo-400 hover:text-indigo-300 font-semibold text-xs flex items-center gap-1 transition-colors">
+                            Teach me step by step →
+                        </button>
                     </div>
                 </div>
             `;
@@ -2368,8 +2391,6 @@ function normalizeResponse(data) {
 
     const blocks = [];
     if (data.simple_explanation) blocks.push({ type: 'summary', content: data.simple_explanation });
-    if (data.why_it_works) blocks.push({ type: 'mechanics', content: data.why_it_works });
-    if (data.example) blocks.push({ type: 'mental_model', content: data.example });
     if (data.visual_intuition) blocks.push({ type: 'visualization', content: data.visual_intuition });
 
     return blocks;
@@ -2379,18 +2400,6 @@ const BLOCK_RENDERERS = {
     summary: (context, block) => `
         <div>
             <div id="typewriter-body-${context.cardId}" class="markdown-body text-gray-200 text-sm leading-relaxed">${safeMarkdown(block.content || "")}</div>
-        </div>
-    `,
-    mechanics: (context, block) => `
-        <div class="callout-minimal space-y-1">
-            <div class="text-[11px] font-semibold text-[#5B8DEF] uppercase tracking-wider">Core Mechanics</div>
-            <p class="text-xs text-gray-300 leading-relaxed">${block.content || ""}</p>
-        </div>
-    `,
-    mental_model: (context, block) => `
-        <div class="callout-minimal callout-warning space-y-1">
-            <div class="text-[11px] font-semibold text-amber-400 uppercase tracking-wider">Mental Model</div>
-            <p class="text-xs text-gray-300 leading-relaxed">${block.content || ""}</p>
         </div>
     `,
     visualization: (context, block) => renderVisualizationBlock(context.cardId, block.content)
@@ -2408,12 +2417,7 @@ function renderBlockList(cardId, data) {
             return renderer ? renderer(context, block) : '';
         } catch (err) {
             console.error(`[BLOCK RENDER ERROR] Failed to render block type '${block.type}':`, err);
-            return `
-                <div class="callout-minimal callout-error space-y-1">
-                    <div class="text-[11px] font-semibold text-rose-400 uppercase tracking-wider">Block Display Degradation (${block.type})</div>
-                    <p class="text-xs text-gray-400">Component degraded safely.</p>
-                </div>
-            `;
+            return '';
         }
     }).join('');
 }
@@ -2421,27 +2425,14 @@ function renderBlockList(cardId, data) {
 function renderVisualizationBlock(cardUniqueId, visualContent) {
     if (!visualContent) return "";
     const vizId = `viz-body-${cardUniqueId}`;
-    const escapedContent = visualContent.replace(/'/g, "\\'").replace(/\n/g, ' ');
     return `
-        <div class="border border-[#222833] rounded-lg bg-[#0B0D12] overflow-hidden mt-4">
-            <div class="px-4 py-2.5 bg-[#11141A] border-b border-[#222833] flex items-center justify-between">
-                <div class="flex items-center gap-2 text-xs font-semibold text-[#5B8DEF]">
-                    <i class="fa-solid fa-diagram-project"></i> Visualization Sandbox
-                </div>
-                <div class="flex items-center gap-3 text-[11px] text-gray-400">
-                    <button onclick="toggleVisualizationBody('${vizId}', this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none">
-                        <i class="fa-solid fa-chevron-up text-[10px]"></i> <span class="viz-toggle-text">Collapse</span>
-                    </button>
-                    <span class="text-[#222833]">|</span>
-                    <button onclick="copyCardContent('${escapedContent}', this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Copy Diagram Code">
-                        <i class="fa-regular fa-copy text-[10px]"></i> Copy
-                    </button>
-                    <button onclick="triggerQuickPrompt('Focus on diagram and break down step by step')" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none">
-                        <i class="fa-solid fa-wand-magic-sparkles text-[10px]"></i> Focus on Diagram
-                    </button>
+        <div class="border border-[#222833] rounded-xl bg-[#0B0D12] overflow-hidden mt-4 shadow-sm">
+            <div class="px-4 py-2 bg-[#11141A] border-b border-[#222833] flex items-center justify-between">
+                <div class="flex items-center gap-2 text-xs font-semibold text-indigo-400">
+                    <i class="fa-solid fa-diagram-project"></i> Diagram
                 </div>
             </div>
-            <div id="${vizId}" class="p-4 bg-[#0B0D12] transition-all">
+            <div id="${vizId}" class="p-4 bg-[#0B0D12]">
                 <div class="mermaid p-3 bg-[#0B0D12] rounded-md text-xs font-mono text-indigo-300 border border-[#222833]">
                     ${visualContent}
                 </div>
