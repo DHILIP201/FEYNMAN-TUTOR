@@ -10,6 +10,7 @@ let isVoiceListening = false;
 let attachedImage = null;
 let showSvgGraph = false;
 let loadingIntervalId = null;
+let isUploadingPdf = false;
 
 // Close menus / palettes on escape/clicks
 document.addEventListener('click', (e) => {
@@ -291,8 +292,11 @@ function initDragAndDrop() {
 }
 
 async function handlePdfUpload(file) {
-    const uploadStatus = document.getElementById('upload-status');
-    const formData = new FormData();
+    if (isUploadingPdf) return;
+    isUploadingPdf = true;
+    try {
+        const uploadStatus = document.getElementById('upload-status');
+        const formData = new FormData();
     formData.append('file', file);
     formData.append('session_id', currentSessionId);
     
@@ -343,8 +347,7 @@ async function handlePdfUpload(file) {
         return;
     }
     
-    try {
-        const response = await fetchAPI('/upload-document/', {
+    const response = await fetchAPI('/upload-document/', {
             method: 'POST',
             body: formData
         });
@@ -398,6 +401,8 @@ async function handlePdfUpload(file) {
     } catch (err) {
         console.error("Upload handler error:", err);
         if (uploadStatus) uploadStatus.innerHTML = `<span class="text-red-400 font-semibold"><i class="fa-solid fa-triangle-exclamation"></i> Upload Error: ${err.message || err}</span>`;
+    } finally {
+        isUploadingPdf = false;
     }
 }
 
@@ -1564,16 +1569,31 @@ function updateWhiteboardContent(content) {
     if (!canvas) return;
     
     if (emptyState) emptyState.classList.add('hidden');
-    canvas.innerHTML = `
-        <div class="bg-[#0C0F17] border border-[#1B2233] p-4 rounded-xl whiteboard-animate-item shadow-lg" style="animation-delay: 0.1s;">
-            <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                <i class="fa-solid fa-compass-drafting"></i> Visual Sandbox
+    
+    if (content && (content.includes('graph ') || content.includes('flowchart '))) {
+        canvas.innerHTML = `
+            <div class="bg-[#0C0F17] border border-[#1B2233] p-4 rounded-xl whiteboard-animate-item shadow-lg" style="animation-delay: 0.1s;">
+                <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1">
+                    <i class="fa-solid fa-compass-drafting"></i> Visual Sandbox Diagram
+                </div>
+                <div class="mermaid p-3 bg-[#0B0D12] rounded-md text-xs font-mono text-indigo-300 border border-[#222833]">
+                    ${content}
+                </div>
             </div>
-            <div class="markdown-body text-xs text-gray-300">
-                ${safeMarkdown(content)}
+        `;
+        initMermaidDiagrams();
+    } else {
+        canvas.innerHTML = `
+            <div class="bg-[#0C0F17] border border-[#1B2233] p-4 rounded-xl whiteboard-animate-item shadow-lg" style="animation-delay: 0.1s;">
+                <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1">
+                    <i class="fa-solid fa-compass-drafting"></i> Visual Sandbox
+                </div>
+                <div class="markdown-body text-xs text-gray-300">
+                    ${safeMarkdown(content)}
+                </div>
             </div>
-        </div>
-    `;
+        `;
+    }
     
     if (drawer) drawer.classList.remove('hidden');
 }
@@ -1822,10 +1842,9 @@ function renderMessageUI(role, text, animate, imageObj = null) {
                 if (chatContainer) {
                     chatContainer.appendChild(div);
                     console.log("AI message appended successfully");
+                    initMermaidDiagrams();
                     if (animate && data && cardUniqueId) {
                         typewriterStream(`typewriter-body-${cardUniqueId}`, safeMarkdown(data.simple_explanation || ""));
-                    } else {
-                        initMermaidDiagrams();
                     }
                 } else {
                     console.error("appendChild failed: chatContainer is null");
