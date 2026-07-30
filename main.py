@@ -152,9 +152,9 @@ def startup_event():
         threading.Thread(target=open_browser).start()
 
 class TutorResponse(BaseModel):
-    simple_explanation: str = Field(description="Feynman simple explanation, jargon-free, like explaining to a 10-year-old. Use markdown.")
+    simple_explanation: str = Field(description="Comprehensive Socratic explanation using structured markdown (Step 1, Step 2, Step 3) with clear analogies.")
     why_it_works: str = Field(description="Conceptual logic and underlying mechanics.")
-    visual_intuition: str = Field(description="Visual markdown table, ASCII diagram, or flowchart.")
+    visual_intuition: str = Field(description="Valid Mermaid graph definition (e.g. graph TD; A --> B;) or structured visual table.")
     example: str = Field(description="Clear real-life analogy.")
     common_mistake: str = Field(description="Typical pitfall or misconception point.")
     mini_quiz: str = Field(description="Conceptual query checking student understanding.")
