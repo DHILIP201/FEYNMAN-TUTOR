@@ -1843,9 +1843,7 @@ function renderMessageUI(role, text, animate, imageObj = null) {
                     chatContainer.appendChild(div);
                     console.log("AI message appended successfully");
                     initMermaidDiagrams();
-                    if (animate && data && cardUniqueId) {
-                        typewriterStream(`typewriter-body-${cardUniqueId}`, safeMarkdown(data.simple_explanation || ""));
-                    }
+                    scrollToBottom();
                 } else {
                     console.error("appendChild failed: chatContainer is null");
                 }
@@ -2307,26 +2305,8 @@ function initMermaidDiagrams() {
 
 function renderFallbackDiagram(containerEl) {
     if (!containerEl) return;
-    containerEl.className = "p-4 bg-[#0A0D14] rounded-lg border border-[#1E2536] space-y-3 my-2";
-    containerEl.innerHTML = `
-        <div class="flex items-center gap-2 text-xs font-semibold text-indigo-400">
-            <i class="fa-solid fa-sitemap"></i> Interactive Concept Blueprint
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
-            <div class="p-3 bg-[#111622] border border-indigo-500/20 rounded-lg text-center shadow-sm">
-                <span class="text-[10px] uppercase tracking-wider text-indigo-400 font-bold block">1. Input / Foundation</span>
-                <span class="text-xs text-gray-300 font-medium">Core Problem Setup</span>
-            </div>
-            <div class="p-3 bg-[#111622] border border-purple-500/20 rounded-lg text-center shadow-sm">
-                <span class="text-[10px] uppercase tracking-wider text-purple-400 font-bold block">2. First Principles</span>
-                <span class="text-xs text-gray-300 font-medium">Feynman Logic Process</span>
-            </div>
-            <div class="p-3 bg-[#111622] border border-emerald-500/20 rounded-lg text-center shadow-sm">
-                <span class="text-[10px] uppercase tracking-wider text-emerald-400 font-bold block">3. Expected Output</span>
-                <span class="text-xs text-gray-300 font-medium">Mastery Outcome</span>
-            </div>
-        </div>
-    `;
+    const parentWrapper = containerEl.closest('.border') || containerEl;
+    if (parentWrapper) parentWrapper.style.display = 'none';
 }
 
 function typewriterStream(elementId, htmlContent) {
