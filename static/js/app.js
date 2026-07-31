@@ -2423,8 +2423,7 @@ function normalizeResponse(data) {
     }
 
     if (data.mini_quiz) {
-        const quizBlock = `\n\n### 🧩 Knowledge Checkpoint\n**Question:** ${data.mini_quiz}\n\n*Click "Simplify" or type your response below to verify your understanding.*`;
-        blocks.push({ type: 'explanation', content: quizBlock });
+        blocks.push({ type: 'knowledge_check', content: data.mini_quiz });
     }
 
     return blocks;
@@ -2439,6 +2438,18 @@ const BLOCK_RENDERERS = {
     explanation: (context, block) => `
         <div>
             <div id="typewriter-body-${context.cardId}" class="markdown-body text-gray-200 text-sm leading-relaxed">${safeMarkdown(block.content || "")}</div>
+        </div>
+    `,
+    knowledge_check: (context, block) => `
+        <div class="mt-5 border border-indigo-900/60 rounded-xl bg-[#0D111A] p-4 shadow-sm">
+            <div class="flex items-center gap-2 text-xs font-bold text-indigo-400 uppercase tracking-wider mb-2">
+                <i class="fa-solid fa-puzzle-piece text-indigo-400"></i> Active Knowledge Checkpoint
+            </div>
+            <div class="text-sm font-medium text-gray-100 mb-3">${safeMarkdown(block.content || "")}</div>
+            <div class="text-xs text-indigo-300/80 bg-indigo-950/40 border border-indigo-800/40 rounded-lg p-2.5 flex items-center gap-2">
+                <i class="fa-solid fa-lightbulb text-amber-400"></i>
+                <span>Pause for a moment and consider your answer, then type your response below to verify your understanding.</span>
+            </div>
         </div>
     `,
     visualization: (context, block) => renderVisualizationBlock(context.cardId, block.content)
