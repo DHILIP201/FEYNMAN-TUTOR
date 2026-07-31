@@ -972,9 +972,19 @@ async def tutor_chat(
         else:
             context_text = "No document attached to this session. Answer from your knowledge and guide the student."
 
-    # STAGE 1 & 2: Formulate LearningPlan & Build System Prompt via FeynmanCognitiveEngine
+    # STAGE 1 & 2: Clean Topic & Formulate LearningPlan via FeynmanCognitiveEngine
+    import re
+    cleaned_user_topic = re.sub(
+        r'^(Teach me step by step until I understand|Explain this concept even simpler|Give a real world analogy|Tell me about|Understanding how the|Understanding|Explain what is|What is)\s+',
+        '',
+        request.user_message,
+        flags=re.IGNORECASE
+    ).strip()
+    if not cleaned_user_topic:
+        cleaned_user_topic = request.user_message
+
     learning_plan = feynman_engine.plan_learning_strategy(
-        user_message=request.user_message,
+        user_message=cleaned_user_topic,
         current_mastery=session.mastery,
         study_mode=session.study_mode
     )
