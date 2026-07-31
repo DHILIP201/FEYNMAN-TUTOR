@@ -2406,49 +2406,75 @@ function renderWorkspaceTabs(cardUniqueId, escapedText) {
 
 function normalizeResponse(data) {
     const blocks = [];
-    
+    const mode = data.lesson_mode || (data.cognitive_trace && data.cognitive_trace.toLowerCase().includes("simplify") ? "SIMPLIFY" : 
+                                    (data.cognitive_trace && data.cognitive_trace.toLowerCase().includes("analogy") ? "ANALOGY" : 
+                                    (data.simple_explanation && (data.simple_explanation.includes("### Step 1") || data.simple_explanation.includes("### Step 2")) ? "STEP_BY_STEP" : "STANDARD")));
+
     let explanationContent = data.simple_explanation || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'summary' || b.type === 'explanation')?.content) : "");
 
-    const isStepByStep = explanationContent.includes("### Step 1") || explanationContent.includes("### Step 2");
-    const isSimplifyOrAnalogy = (data.cognitive_trace && (data.cognitive_trace.toLowerCase().includes("simplify") || data.cognitive_trace.toLowerCase().includes("analogy"))) || 
-                                (explanationContent.length < 500 && !isStepByStep && (explanationContent.includes("Imagine") || explanationContent.includes("Think of")));
+    switch (mode) {
+        case "SIMPLIFY":
+        case "ANALOGY":
+            if (explanationContent) {
+                blocks.push({ type: 'explanation', content: explanationContent });
+            }
+            if (data.coach_recommendation) {
+                blocks.push({ type: 'coach_recommendation', content: data.coach_recommendation });
+            }
+            if (data.next_learning_step) {
+                blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
+            }
+            break;
 
-    // Only force-append Deep Dive & Misconceptions for standard concept queries
-    if (!isStepByStep && !isSimplifyOrAnalogy) {
-        if (data.why_it_works && !explanationContent.includes(data.why_it_works.slice(0, 30))) {
-            explanationContent += `\n\n### 🔬 Deep Dive\n${data.why_it_works}`;
-        }
-        if (data.example && !explanationContent.includes(data.example.slice(0, 30))) {
-            explanationContent += `\n\n### 🌍 Real-World Example\n${data.example}`;
-        }
-        if (data.common_mistake && !explanationContent.includes(data.common_mistake.slice(0, 30))) {
-            explanationContent += `\n\n> 💡 **Common Misconception:** ${data.common_mistake}`;
-        }
-    }
+        case "STEP_BY_STEP":
+            if (explanationContent) {
+                blocks.push({ type: 'explanation', content: explanationContent });
+            }
+            if (data.coach_recommendation) {
+                blocks.push({ type: 'coach_recommendation', content: data.coach_recommendation });
+            }
+            if (data.next_learning_step) {
+                blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
+            }
+            break;
 
-    if (explanationContent) {
-        blocks.push({ type: 'explanation', content: explanationContent });
-    }
+        case "STANDARD":
+        default:
+            if (data.why_it_works && !explanationContent.includes(data.why_it_works.slice(0, 30))) {
+                explanationContent += `\n\n### 🔬 Deep Dive\n${data.why_it_works}`;
+            }
+            if (data.example && !explanationContent.includes(data.example.slice(0, 30))) {
+                explanationContent += `\n\n### 🌍 Real-World Example\n${data.example}`;
+            }
+            if (data.common_mistake && !explanationContent.includes(data.common_mistake.slice(0, 30))) {
+                explanationContent += `\n\n> 💡 **Common Misconception:** ${data.common_mistake}`;
+            }
 
-    const vizContent = data.visual_intuition || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'visualization')?.content) : "");
-    if (vizContent && !vizContent.includes("Fallback") && !isSimplifyOrAnalogy) {
-        blocks.push({ type: 'visualization', content: vizContent });
-    }
+            if (explanationContent) {
+                blocks.push({ type: 'explanation', content: explanationContent });
+            }
 
-    if (data.mini_quiz && !isSimplifyOrAnalogy && !isStepByStep) {
-        blocks.push({ type: 'knowledge_check', content: data.mini_quiz });
-    }
+            const vizContent = data.visual_intuition || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'visualization')?.content) : "");
+            if (vizContent && !vizContent.includes("Fallback")) {
+                blocks.push({ type: 'visualization', content: vizContent });
+            }
 
-    if (data.reflection_prompt && !isSimplifyOrAnalogy && !isStepByStep) {
-        blocks.push({ type: 'reflection_prompt', content: data.reflection_prompt });
-    }
+            if (data.mini_quiz) {
+                blocks.push({ type: 'knowledge_check', content: data.mini_quiz });
+            }
 
-    if (data.coach_recommendation && !isSimplifyOrAnalogy) {
-        blocks.push({ type: 'coach_recommendation', content: data.coach_recommendation });
-    }
+            if (data.reflection_prompt) {
+                blocks.push({ type: 'reflection_prompt', content: data.reflection_prompt });
+            }
 
-    if (data.next_learning_step) {
-        blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
+            if (data.coach_recommendation) {
+                blocks.push({ type: 'coach_recommendation', content: data.coach_recommendation });
+            }
+
+            if (data.next_learning_step) {
+                blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
+            }
+            break;
     }
 
     return blocks;

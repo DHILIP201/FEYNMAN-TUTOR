@@ -127,9 +127,17 @@ class ResponseValidator:
         why = repaired.get("why_it_works", "").strip()
         example = repaired.get("example", "").strip()
 
-        # If simple_explanation is empty, fallback to why_it_works or example
-        if not explanation:
-            explanation = why or example or "Key concept breakdown."
+        # Determine explicit pedagogical mode
+        cognitive_trace_lower = repaired.get("cognitive_trace", "").lower()
+        if "### step 1" in explanation.lower() or "### step 2" in explanation.lower() or "step by step" in cognitive_trace_lower:
+            mode = "STEP_BY_STEP"
+        elif "simplify" in cognitive_trace_lower or (len(explanation.split()) < 90 and "imagine" in explanation.lower()):
+            mode = "SIMPLIFY"
+        elif "analogy" in cognitive_trace_lower:
+            mode = "ANALOGY"
+        else:
+            mode = "STANDARD"
+        repaired["lesson_mode"] = mode
 
         repaired["simple_explanation"] = explanation
         repaired.setdefault("why_it_works", why or "Underlying conceptual mechanics.")

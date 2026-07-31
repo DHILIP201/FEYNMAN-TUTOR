@@ -12,6 +12,7 @@ class DocumentBlock(BaseModel):
 class TutorDocument(BaseModel):
     schema_version: int = Field(default=2, description="Versioned document schema identifier")
     document_type: str = Field(default="learning_document", description="Document type tag")
+    lesson_mode: str = Field(default="STANDARD", description="Pedagogical mode: STANDARD, SIMPLIFY, ANALOGY, STEP_BY_STEP")
     cognitive_trace: str
     simple_explanation: str
     why_it_works: str
