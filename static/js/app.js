@@ -2399,7 +2399,20 @@ function renderWorkspaceTabs(cardUniqueId, escapedText) {
 
 function normalizeResponse(data) {
     const blocks = [];
-    const explanationContent = data.simple_explanation || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'summary' || b.type === 'explanation')?.content) : "");
+    
+    let explanationContent = data.simple_explanation || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'summary' || b.type === 'explanation')?.content) : "");
+
+    // Enrich explanation with Deep Dive (why_it_works) and Real-World Example if distinct
+    if (data.why_it_works && !explanationContent.includes(data.why_it_works.slice(0, 30))) {
+        explanationContent += `\n\n### 🔬 Deep Dive\n${data.why_it_works}`;
+    }
+    if (data.example && !explanationContent.includes(data.example.slice(0, 30))) {
+        explanationContent += `\n\n### 🌍 Real-World Example\n${data.example}`;
+    }
+    if (data.common_mistake && !explanationContent.includes(data.common_mistake.slice(0, 30))) {
+        explanationContent += `\n\n> 💡 **Common Misconception:** ${data.common_mistake}`;
+    }
+
     if (explanationContent) {
         blocks.push({ type: 'explanation', content: explanationContent });
     }
@@ -2407,6 +2420,11 @@ function normalizeResponse(data) {
     const vizContent = data.visual_intuition || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'visualization')?.content) : "");
     if (vizContent) {
         blocks.push({ type: 'visualization', content: vizContent });
+    }
+
+    if (data.mini_quiz) {
+        const quizBlock = `\n\n### 🧩 Knowledge Checkpoint\n**Question:** ${data.mini_quiz}\n\n*Click "Simplify" or type your response below to verify your understanding.*`;
+        blocks.push({ type: 'explanation', content: quizBlock });
     }
 
     return blocks;
