@@ -2495,7 +2495,7 @@ const BLOCK_RENDERERS = {
                     <div class="text-xs font-semibold text-gray-200 mt-0.5">${safeMarkdown(block.content || "")}</div>
                 </div>
             </div>
-            <button onclick="sendQuickPrompt('Tell me about ${block.content.replace(/'/g, "\\'")}')" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 focus:outline-none shadow">
+            <button onclick="triggerQuickPrompt('Tell me about ${block.content.replace(/'/g, "\\'")}')" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 focus:outline-none shadow">
                 Explore <i class="fa-solid fa-arrow-right text-[10px]"></i>
             </button>
         </div>
@@ -2521,7 +2521,9 @@ function renderBlockList(cardId, data) {
 }
 
 function renderVisualizationBlock(cardUniqueId, visualContent) {
-    if (!visualContent) return "";
+    if (!visualContent || visualContent.trim() === "" || visualContent.includes("Fallback") || (!visualContent.includes("graph ") && !visualContent.includes("flowchart "))) {
+        return "";
+    }
     const vizId = `viz-body-${cardUniqueId}`;
     return `
         <div class="border border-[#222833] rounded-xl bg-[#0B0D12] overflow-hidden mt-4 shadow-sm">
