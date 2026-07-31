@@ -49,8 +49,11 @@ async function fetchAPI(endpoint, options = {}) {
     
     try {
         const response = await fetch(resolveURL(endpoint), options);
-        if (response.status === 401) {
-            console.warn(`[API 401] Unauthorized access on ${endpoint}`);
+        if (response.status === 401 && !endpoint.includes('/login') && !endpoint.includes('/signup')) {
+            console.warn(`[API 401] Unauthorized access on ${endpoint}. Cleared stale auth token.`);
+            if (typeof signOut === 'function') {
+                signOut();
+            }
         }
         return response;
     } catch (err) {
