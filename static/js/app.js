@@ -2224,12 +2224,19 @@ function switchCardTab(cardId, tabName) {
 }
 
 function copyCardContent(text, btnEl) {
+    let textToCopy = text;
+    if (btnEl) {
+        const cardWrapper = btnEl.closest('.card, .bg-[#0F131C], [id^="card-"]') || btnEl.closest('.border');
+        if (cardWrapper) {
+            textToCopy = cardWrapper.innerText || text;
+        }
+    }
     if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(() => {
-            showToast("Copied card content to clipboard!", "success");
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            showToast("Copied full lesson to clipboard!", "success");
             if (btnEl) {
                 const oldHtml = btnEl.innerHTML;
-                btnEl.innerHTML = '<i class="fa-solid fa-check text-emerald-400"></i>';
+                btnEl.innerHTML = '<i class="fa-solid fa-check text-emerald-400 text-xs"></i> Copied';
                 setTimeout(() => btnEl.innerHTML = oldHtml, 2000);
             }
         });
