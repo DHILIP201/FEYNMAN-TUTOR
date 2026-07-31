@@ -3,7 +3,14 @@ Feynman Cognitive Engine — Pydantic Document Schemas
 """
 
 from typing import List, Dict, Any, Optional
+from enum import Enum
 from pydantic import BaseModel, Field
+
+class LessonMode(str, Enum):
+    STANDARD = "STANDARD"
+    SIMPLIFY = "SIMPLIFY"
+    ANALOGY = "ANALOGY"
+    STEP_BY_STEP = "STEP_BY_STEP"
 
 class DocumentBlock(BaseModel):
     type: str = Field(description="Block type identifier e.g. summary, mechanics, mental_model, visualization, quiz, references")
@@ -12,7 +19,7 @@ class DocumentBlock(BaseModel):
 class TutorDocument(BaseModel):
     schema_version: int = Field(default=2, description="Versioned document schema identifier")
     document_type: str = Field(default="learning_document", description="Document type tag")
-    lesson_mode: str = Field(default="STANDARD", description="Pedagogical mode: STANDARD, SIMPLIFY, ANALOGY, STEP_BY_STEP")
+    lesson_mode: LessonMode = Field(default=LessonMode.STANDARD, description="Pedagogical mode enum: STANDARD, SIMPLIFY, ANALOGY, STEP_BY_STEP")
     cognitive_trace: str
     simple_explanation: str
     why_it_works: str
