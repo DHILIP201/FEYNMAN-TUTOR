@@ -2281,7 +2281,19 @@ function initMermaidDiagrams() {
         try {
             window.mermaid.initialize({
                 startOnLoad: false,
-                theme: 'dark',
+                theme: 'base',
+                themeVariables: {
+                    darkMode: true,
+                    background: '#0B1220',
+                    primaryColor: '#1E40AF',
+                    primaryTextColor: '#FFFFFF',
+                    primaryBorderColor: '#60A5FA',
+                    lineColor: '#CBD5E1',
+                    secondaryColor: '#1E293B',
+                    tertiaryColor: '#0F172A',
+                    textColor: '#F8FAFC',
+                    fontSize: '14px'
+                },
                 securityLevel: 'loose'
             });
             
