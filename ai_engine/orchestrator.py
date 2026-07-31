@@ -42,19 +42,38 @@ class FeynmanCognitiveEngine:
 
     def get_fallback_document(self, user_message: str, current_mastery: int, sources: List[Any]) -> Dict[str, Any]:
         """
-        Generates a 12-field structured fallback learning document if upstream API providers hit rate limits.
+        Generates an intent-aware structured learning document if upstream API providers hit transient rate limits.
         """
+        clean_query = user_message.strip().rstrip("?").strip()
+        msg_lower = user_message.lower()
+
+        if "step by step" in msg_lower or "teach me" in msg_lower:
+            simple_exp = (
+                f"### Step 1: Foundational Concept\n{clean_query} introduces fundamental operational principles.\n\n"
+                f"### Step 2: Mechanical Transformation\nData and inputs flow through structured processing stages to compute valid outputs.\n\n"
+                f"### Step 3: Practical Application\nInputs are verified and evaluated to ensure accurate results."
+            )
+        elif "simplify" in msg_lower:
+            simple_exp = f"Imagine explaining {clean_query} using a simple story. Inputs enter a system, undergo clear processing steps, and produce an understandable result without complex technical jargon."
+        elif "analogy" in msg_lower:
+            simple_exp = f"Think of {clean_query} like a well-organized team. Each member handles one specialized task, passing their results to the next member until the final decision is reached."
+        else:
+            simple_exp = (
+                f"Understanding **{clean_query}** starts with looking at how information flows through a system. "
+                f"Inputs are analyzed, transformed through processing mechanics, and evaluated to produce accurate predictions or results."
+            )
+
         raw_data = {
             "cognitive_trace": "Active recall evaluation model active. Processing query context...",
-            "simple_explanation": f"### Step 1: Core Concept\n'{user_message}' represents how inputs pass through learning transformations to generate outputs.\n\n### Step 2: Key Mechanics\nData flows sequentially across processing layers to optimize prediction accuracy.\n\n### Step 3: Example\nLike a spam filter inspecting email keywords before classifying as inbox or spam.",
-            "why_it_works": "Internal weights and activation boundaries tune mathematical parameters.",
-            "example": "Like adjusting knobs on an audio mixer to match target sound quality.",
-            "common_mistake": "Confusing training input data with prediction outputs.",
-            "mini_quiz": f"What is the main goal when processing '{user_message}'?",
-            "reflection_prompt": "How would you explain this workflow in your own words?",
-            "coach_recommendation": "Focus on data flow direction and output validation.",
-            "visual_intuition": "graph TD;\n  Input[Input Layer] --> Hidden[Hidden Processing Layers];\n  Hidden --> Output[Prediction Output];",
-            "next_learning_step": "Master stack bounds and memory efficiency",
+            "simple_explanation": simple_exp,
+            "why_it_works": f"Underlying mechanics of {clean_query} process inputs and optimize output parameters.",
+            "example": f"Like a smart filter inspecting incoming data before making a classification.",
+            "common_mistake": "Confusing initial input parameters with final computed predictions.",
+            "mini_quiz": f"What is the primary objective when working with {clean_query}?",
+            "reflection_prompt": f"How would you explain the core mechanism of {clean_query} to a peer?",
+            "coach_recommendation": f"Focus on understanding the flow of data across {clean_query}.",
+            "visual_intuition": f"graph TD;\n  Start[{clean_query}] --> Process[Input Transformation];\n  Process --> Outcome[Validated Result];",
+            "next_learning_step": f"Advanced applications of {clean_query}",
             "estimated_study_time": 4,
             "mastery_score": min(100, current_mastery + 10),
             "sources": sources
