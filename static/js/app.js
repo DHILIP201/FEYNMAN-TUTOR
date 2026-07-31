@@ -2426,6 +2426,18 @@ function normalizeResponse(data) {
         blocks.push({ type: 'knowledge_check', content: data.mini_quiz });
     }
 
+    if (data.reflection_prompt) {
+        blocks.push({ type: 'reflection_prompt', content: data.reflection_prompt });
+    }
+
+    if (data.coach_recommendation) {
+        blocks.push({ type: 'coach_recommendation', content: data.coach_recommendation });
+    }
+
+    if (data.next_learning_step) {
+        blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
+    }
+
     return blocks;
 }
 
@@ -2442,14 +2454,50 @@ const BLOCK_RENDERERS = {
     `,
     knowledge_check: (context, block) => `
         <div class="mt-5 border border-indigo-900/60 rounded-xl bg-[#0D111A] p-4 shadow-sm">
-            <div class="flex items-center gap-2 text-xs font-bold text-indigo-400 uppercase tracking-wider mb-2">
-                <i class="fa-solid fa-puzzle-piece text-indigo-400"></i> Active Knowledge Checkpoint
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2 text-xs font-bold text-indigo-400 uppercase tracking-wider">
+                    <i class="fa-solid fa-puzzle-piece text-indigo-400"></i> Active Knowledge Checkpoint
+                </div>
+                ${context.data.estimated_study_time ? `<span class="text-[10px] font-semibold text-gray-400 bg-gray-900 border border-gray-800 px-2 py-0.5 rounded-full"><i class="fa-regular fa-clock text-indigo-400 mr-1"></i>${context.data.estimated_study_time} min read</span>` : ''}
             </div>
             <div class="text-sm font-medium text-gray-100 mb-3">${safeMarkdown(block.content || "")}</div>
             <div class="text-xs text-indigo-300/80 bg-indigo-950/40 border border-indigo-800/40 rounded-lg p-2.5 flex items-center gap-2">
                 <i class="fa-solid fa-lightbulb text-amber-400"></i>
                 <span>Pause for a moment and consider your answer, then type your response below to verify your understanding.</span>
             </div>
+        </div>
+    `,
+    reflection_prompt: (context, block) => `
+        <div class="mt-4 border border-emerald-900/50 rounded-xl bg-[#0B1512] p-4 shadow-sm">
+            <div class="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">
+                <i class="fa-solid fa-graduation-cap text-emerald-400"></i> Feynman Active Recall Challenge
+            </div>
+            <div class="text-sm text-gray-200 leading-relaxed font-medium mb-1">${safeMarkdown(block.content || "")}</div>
+            <div class="text-[11px] text-emerald-400/80 italic mt-2">Can you explain this back in simple terms as if teaching a peer?</div>
+        </div>
+    `,
+    coach_recommendation: (context, block) => `
+        <div class="mt-4 border border-amber-900/40 rounded-xl bg-[#141009] p-4 shadow-sm">
+            <div class="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider mb-2">
+                <i class="fa-solid fa-user-ninja text-amber-400"></i> AI Tutor Coaching Tip
+            </div>
+            <div class="text-xs text-amber-200/90 leading-relaxed">${safeMarkdown(block.content || "")}</div>
+        </div>
+    `,
+    next_learning_step: (context, block) => `
+        <div class="mt-4 border border-sky-900/50 rounded-xl bg-[#09131C] p-4 flex items-center justify-between shadow-sm">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-sky-950 border border-sky-800 flex items-center justify-center text-sky-400 text-sm">
+                    <i class="fa-solid fa-compass"></i>
+                </div>
+                <div>
+                    <div class="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Next Learning Step</div>
+                    <div class="text-xs font-semibold text-gray-200 mt-0.5">${safeMarkdown(block.content || "")}</div>
+                </div>
+            </div>
+            <button onclick="sendQuickPrompt('Tell me about ${block.content.replace(/'/g, "\\'")}')" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 focus:outline-none shadow">
+                Explore <i class="fa-solid fa-arrow-right text-[10px]"></i>
+            </button>
         </div>
     `,
     visualization: (context, block) => renderVisualizationBlock(context.cardId, block.content)
