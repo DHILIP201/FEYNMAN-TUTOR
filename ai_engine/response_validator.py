@@ -139,6 +139,15 @@ class ResponseValidator:
             mode = "STANDARD"
         repaired["lesson_mode"] = mode
 
+        # Clean prompt echo from simple_explanation opening
+        clean_exp = explanation
+        import re
+        clean_exp = re.sub(r'^(Teach me step by step until I understand|Explain this concept even simpler|Give a real world analogy|Tell me about|Understanding how the|Understanding|Explain what is|What is)\s+', '', clean_exp, flags=re.IGNORECASE)
+        # Capitalize first letter of cleaned explanation if altered
+        if clean_exp and clean_exp != explanation and clean_exp[0].islower():
+            clean_exp = clean_exp[0].upper() + clean_exp[1:]
+        explanation = clean_exp
+
         repaired["simple_explanation"] = explanation
         repaired.setdefault("why_it_works", why or "Underlying conceptual mechanics.")
         repaired.setdefault("example", example or "Illustrative real-world example.")
