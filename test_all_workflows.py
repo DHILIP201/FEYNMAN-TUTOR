@@ -51,8 +51,27 @@ data_reg = r_reg.json()
 assert "access_token" in data_reg, "No access token in registration response"
 print("  [OK] Registration: PASS (Token received)")
 
-# B. Login
-print("[TEST] Logging in...")
+# B. Duplicate Register Attempt (Should fail with 400)
+print("[TEST] Verifying Duplicate Registration Guard...")
+r_dup = client.post('/auth/signup/', json={
+    "name": TEST_NAME,
+    "email": TEST_EMAIL,
+    "password": TEST_PASS
+})
+assert r_dup.status_code == 400, f"Duplicate signup did not return 400: {r_dup.text}"
+print("  [OK] Duplicate Registration Guard: PASS (400 Email already registered)")
+
+# C. Wrong Password Attempt (Should fail with 401)
+print("[TEST] Verifying Wrong Password Guard...")
+r_bad_pass = client.post('/auth/login/', json={
+    "email": TEST_EMAIL,
+    "password": "WrongPassword999!"
+})
+assert r_bad_pass.status_code == 401, f"Wrong password did not return 401: {r_bad_pass.text}"
+print("  [OK] Wrong Password Guard: PASS (401 Unauthorized)")
+
+# D. Login with correct password
+print("[TEST] Logging in with correct credentials...")
 r_login = client.post('/auth/login/', json={
     "email": TEST_EMAIL,
     "password": TEST_PASS
