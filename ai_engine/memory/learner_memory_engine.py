@@ -232,33 +232,52 @@ class LearnerMemoryEngine:
         canonical_topic: str,
         is_correct: bool,
         weak_concept: Optional[str] = None,
-        confidence_delta: float = 0.0
+        evaluation_id: Optional[str] = None
     ) -> Tuple[TopicMastery, Dict[str, Any]]:
         """
         Authoritative backend calculation of learner mastery and weak spots.
-        Gemini is NOT allowed to directly set database values.
+        Gemini is NOT allowed to directly set database values or confidence deltas.
+        Idempotent: If evaluation_id is provided and already recorded, ignores duplicates.
         """
         mastery = self.get_or_create_topic_mastery(db, user_id, canonical_topic)
         profile = self.get_or_create_profile(db, user_id)
-
         current_weaknesses = json.loads(mastery.weak_spots or "[]")
+
+        # Idempotency check
+        if evaluation_id:
+            existing_event = db.query(LearningEvent).filter(
+                LearningEvent.user_id == user_id,
+                LearningEvent.metadata_json.like(f'%"evaluation_id": "{evaluation_id}"%')
+            ).first()
+            if existing_event:
+                # Already processed — return current state without double mutating
+                return mastery, {
+                    "canonical_topic": canonical_topic,
+                    "mastery_score": mastery.mastery_score,
+                    "confidence_score": mastery.confidence_score,
+                    "attempts": mastery.attempt_count,
+                    "weak_spots": current_weaknesses,
+                    "next_review_at": mastery.next_review_at.strftime("%Y-%m-%d %H:%M") if mastery.next_review_at else None,
+                    "idempotent_duplicate": True
+                }
+
         old_mastery = mastery.mastery_score
 
         if is_correct:
-            # Mastery increase & confidence boost
+            # Backend strictly controls exact mastery (+15) and confidence (+0.10) increments
             mastery.mastery_score = min(100, mastery.mastery_score + 15)
-            mastery.confidence_score = min(1.0, round(mastery.confidence_score + 0.10 + confidence_delta, 2))
+            mastery.confidence_score = min(1.0, round(mastery.confidence_score + 0.10, 2))
             mastery.correct_count += 1
             # If a weak spot was resolved, remove it
             if weak_concept and weak_concept in current_weaknesses:
                 current_weaknesses.remove(weak_concept)
             event_type = "quiz_correct"
         else:
-            # Mastery penalty & confidence decrement
+            # Backend strictly controls exact mastery (-10) and confidence (-0.15) decrements
             mastery.mastery_score = max(0, mastery.mastery_score - 10)
             mastery.confidence_score = max(0.0, round(mastery.confidence_score - 0.15, 2))
             mastery.incorrect_count += 1
-            # Add identified weak spot
+            # Add identified weak spot (deduplicated)
             if weak_concept and weak_concept not in current_weaknesses:
                 current_weaknesses.append(weak_concept)
             event_type = "quiz_incorrect"
@@ -280,19 +299,23 @@ class LearnerMemoryEngine:
         db.refresh(mastery)
         db.refresh(profile)
 
-        # Log learning event in ledger
+        # Log learning event in ledger with evaluation_id
+        event_metadata = {
+            "old_mastery": old_mastery,
+            "new_mastery": mastery.mastery_score,
+            "is_correct": is_correct,
+            "weak_concept": weak_concept,
+            "next_review_at": mastery.next_review_at.isoformat()
+        }
+        if evaluation_id:
+            event_metadata["evaluation_id"] = evaluation_id
+
         self.log_event(
             db,
             user_id=user_id,
             canonical_topic=canonical_topic,
             event_type=event_type,
-            metadata={
-                "old_mastery": old_mastery,
-                "new_mastery": mastery.mastery_score,
-                "is_correct": is_correct,
-                "weak_concept": weak_concept,
-                "next_review_at": mastery.next_review_at.isoformat()
-            }
+            metadata=event_metadata
         )
 
         signal_summary = {
@@ -301,11 +324,12 @@ class LearnerMemoryEngine:
             "confidence_score": mastery.confidence_score,
             "attempts": mastery.attempt_count,
             "weak_spots": current_weaknesses,
-            "next_review_at": mastery.next_review_at.strftime("%Y-%m-%d %H:%M")
+            "next_review_at": mastery.next_review_at.strftime("%Y-%m-%d %H:%M"),
+            "idempotent_duplicate": False
         }
         return mastery, signal_summary
 
-    # --- KNOWLEDGE GRAPH RELATIONS ---
+    # --- KNOWLEDGE GRAPH & STATUS MAPPING ---
 
     def get_prerequisites(self, db: Session, canonical_topic: str) -> List[str]:
         """Returns immediate prerequisite concepts required before learning canonical_topic."""
@@ -327,6 +351,215 @@ class LearnerMemoryEngine:
             if e.target_topic != canonical_topic:
                 related.add(e.target_topic)
         return list(related)
+
+    def get_user_knowledge_map(self, db: Session, user_id: int) -> Dict[str, Any]:
+        """
+        Distinguishes NOT_STARTED from 0% mastery and provides visual statuses:
+        - MASTERED: mastery >= 80%
+        - IN_PROGRESS: 40% <= mastery < 80%
+        - NEEDS_ATTENTION: attempted but mastery < 40%
+        - NOT_STARTED: topic in knowledge graph not yet attempted by student
+        """
+        global_nodes = db.query(KnowledgeNode).all()
+        user_masteries = {
+            m.canonical_topic: m for m in db.query(TopicMastery).filter(TopicMastery.user_id == user_id).all()
+        }
+
+        nodes = []
+        for gn in global_nodes:
+            topic = gn.canonical_topic
+            m = user_masteries.get(topic)
+
+            if m is None or (m.attempt_count == 0 and m.mastery_score == 0):
+                status = "NOT_STARTED"
+                score = 0
+                confidence = 0.0
+                attempts = 0
+                weak_spots = []
+                last_studied = None
+                next_review = None
+            else:
+                score = m.mastery_score
+                confidence = m.confidence_score
+                attempts = m.attempt_count
+                weak_spots = json.loads(m.weak_spots or "[]")
+                last_studied = m.last_studied_at.isoformat() if m.last_studied_at else None
+                next_review = m.next_review_at.isoformat() if m.next_review_at else None
+
+                if score >= 80:
+                    status = "MASTERED"
+                elif score >= 40:
+                    status = "IN_PROGRESS"
+                else:
+                    status = "NEEDS_ATTENTION"
+
+            nodes.append({
+                "topic": topic,
+                "category": gn.category,
+                "description": gn.description,
+                "difficulty_tier": gn.difficulty_tier,
+                "status": status,
+                "mastery_score": score,
+                "confidence_score": confidence,
+                "attempt_count": attempts,
+                "weak_spots": weak_spots,
+                "last_studied_at": last_studied,
+                "next_review_at": next_review
+            })
+
+        edges = []
+        db_edges = db.query(KnowledgeEdge).all()
+        for e in db_edges:
+            edges.append({
+                "source": e.source_topic,
+                "target": e.target_topic,
+                "relationship": e.relationship_type,
+                "weight": e.weight
+            })
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "total_nodes": len(nodes),
+            "mastered_count": sum(1 for n in nodes if n["status"] == "MASTERED"),
+            "in_progress_count": sum(1 for n in nodes if n["status"] == "IN_PROGRESS"),
+            "needs_attention_count": sum(1 for n in nodes if n["status"] == "NEEDS_ATTENTION"),
+            "not_started_count": sum(1 for n in nodes if n["status"] == "NOT_STARTED")
+        }
+
+    # --- ADAPTIVE LEARNING PATH & PREREQUISITE RECOMMENDER ---
+
+    def recommend_next_learning_path(self, db: Session, user_id: int) -> Dict[str, Any]:
+        """
+        Cognitive recommendation engine:
+        1. Checks for prerequisite blockers (e.g. Backpropagation weak, but Calculus is weak too).
+        2. Checks for due spaced repetition reviews.
+        3. Checks for weak topic remediation.
+        4. Suggests next unlocked frontier concepts in knowledge graph.
+        """
+        user_masteries = {
+            m.canonical_topic: m for m in db.query(TopicMastery).filter(TopicMastery.user_id == user_id).all()
+        }
+        all_edges = db.query(KnowledgeEdge).filter(KnowledgeEdge.relationship_type == "PREREQUISITE_OF").all()
+
+        now = datetime.utcnow()
+        due_reviews = []
+        for m in user_masteries.values():
+            if m.next_review_at and m.next_review_at <= now and m.attempt_count > 0:
+                due_reviews.append({
+                    "topic": m.canonical_topic,
+                    "mastery_score": m.mastery_score,
+                    "next_review_at": m.next_review_at.strftime("%Y-%m-%d %H:%M")
+                })
+
+        # Find Prerequisite Blockers
+        prerequisite_blockers = []
+        for topic, m in user_masteries.items():
+            if m.attempt_count > 0 and m.mastery_score < 60:
+                # Find prerequisites of this topic
+                prereqs = [e.source_topic for e in all_edges if e.target_topic == topic]
+                for p in prereqs:
+                    pm = user_masteries.get(p)
+                    p_score = pm.mastery_score if pm else 0
+                    if p_score < 60:
+                        prerequisite_blockers.append({
+                            "target_topic": topic,
+                            "target_mastery": m.mastery_score,
+                            "prerequisite_topic": p,
+                            "prerequisite_mastery": p_score,
+                            "recommendation": f"Strengthen {p} ({p_score}%) before continuing {topic} ({m.mastery_score}%)."
+                        })
+
+        # Weak spots across all topics
+        all_weak_spots = []
+        for m in user_masteries.values():
+            ws = json.loads(m.weak_spots or "[]")
+            for w in ws:
+                all_weak_spots.append({"topic": m.canonical_topic, "weak_concept": w})
+
+        # Determine Primary Action
+        primary_action = None
+
+        if prerequisite_blockers:
+            pb = prerequisite_blockers[0]
+            primary_action = {
+                "type": "REPAIR_PREREQUISITE",
+                "topic": pb["prerequisite_topic"],
+                "target_topic": pb["target_topic"],
+                "reason": pb["recommendation"],
+                "current_mastery": pb["prerequisite_mastery"],
+                "urgency": "high"
+            }
+        elif due_reviews:
+            dr = due_reviews[0]
+            primary_action = {
+                "type": "SPACED_REVIEW",
+                "topic": dr["topic"],
+                "target_topic": None,
+                "reason": f"Active recall review is due today to reinforce retention.",
+                "current_mastery": dr["mastery_score"],
+                "urgency": "high"
+            }
+        else:
+            # Look for weak topic
+            weak_topics = [m for m in user_masteries.values() if m.attempt_count > 0 and m.mastery_score < 60]
+            if weak_topics:
+                wt = weak_topics[0]
+                primary_action = {
+                    "type": "REMEDY_WEAK_TOPIC",
+                    "topic": wt.canonical_topic,
+                    "target_topic": None,
+                    "reason": f"Mastery is currently at {wt.mastery_score}%. Practice active recall to overcome detected misconceptions.",
+                    "current_mastery": wt.mastery_score,
+                    "urgency": "medium"
+                }
+            else:
+                # Find Next Frontier (topics where all prerequisites are >= 75%)
+                global_nodes = db.query(KnowledgeNode).all()
+                unlocked_topics = []
+                for gn in global_nodes:
+                    topic = gn.canonical_topic
+                    m = user_masteries.get(topic)
+                    if m is None or m.attempt_count == 0:
+                        # Check prerequisites
+                        prereqs = [e.source_topic for e in all_edges if e.target_topic == topic]
+                        all_prereqs_met = True
+                        for p in prereqs:
+                            pm = user_masteries.get(p)
+                            if not pm or pm.mastery_score < 75:
+                                all_prereqs_met = False
+                                break
+                        if all_prereqs_met:
+                            unlocked_topics.append(topic)
+
+                next_topic = unlocked_topics[0] if unlocked_topics else "Recursion"
+                primary_action = {
+                    "type": "NEXT_FRONTIER",
+                    "topic": next_topic,
+                    "target_topic": None,
+                    "reason": f"Prerequisites are mastered! Ready to explore {next_topic}.",
+                    "current_mastery": 0,
+                    "urgency": "low"
+                }
+
+        # Build Recommended Sequence
+        learning_path = []
+        if primary_action:
+            learning_path.append(primary_action["topic"])
+        for pb in prerequisite_blockers:
+            if pb["target_topic"] not in learning_path:
+                learning_path.append(pb["target_topic"])
+        for dr in due_reviews:
+            if dr["topic"] not in learning_path:
+                learning_path.append(dr["topic"])
+
+        return {
+            "primary_action": primary_action,
+            "prerequisite_blockers": prerequisite_blockers,
+            "due_reviews": due_reviews,
+            "weak_spots": all_weak_spots,
+            "learning_path": learning_path[:5]
+        }
 
     # --- LEARNING EVENT LEDGER ---
 
@@ -407,3 +640,4 @@ class LearnerMemoryEngine:
 
 # Singleton Learner Memory Engine
 learner_memory_engine = LearnerMemoryEngine()
+

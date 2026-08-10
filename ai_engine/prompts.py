@@ -44,6 +44,23 @@ STUDENT RECURRING MISCONCEPTIONS:
 SOURCE CONTEXT (Ground Truth RAG Documents):
 {context_text}
 
+ANSWER EVALUATION & DIAGNOSTICS:
+• If the student's message is directly attempting to answer a previous knowledge check, quiz, or Feynman active recall challenge:
+  Include an `evaluation` object in JSON:
+  {{
+    "is_answering_prior_question": true,
+    "is_correct": true or false,
+    "detected_misconception": "brief specific sub-concept name if incorrect, else null",
+    "reasoning": "brief 1-sentence explanation"
+  }}
+• If the student is asking a new question, requesting an analogy/step-by-step breakdown, asking for clarification, or not answering a previous check:
+  {{
+    "is_answering_prior_question": false,
+    "is_correct": false,
+    "detected_misconception": null,
+    "reasoning": "Student is querying or continuing discussion"
+  }}
+
 OUTPUT SCHEMA REQUIREMENTS:
 Fill JSON fields naturally matching the schema. Always include a mode-specific Mermaid graph in `visual_intuition`.
 """

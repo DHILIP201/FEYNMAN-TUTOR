@@ -392,24 +392,57 @@
                     </div>
                 </div>
 
+                <!-- WHAT SHOULD I LEARN NEXT? (Adaptive AI Learning OS Recommendation) -->
+                <div id="recommendation-banner" class="bg-gradient-to-r from-indigo-950/60 via-[#0E1320] to-purple-950/40 border border-indigo-500/40 p-6 rounded-3xl relative overflow-hidden shadow-2xl">
+                    <div class="absolute -right-10 -bottom-10 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-2">
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                                    <i class="fa-solid fa-compass mr-1"></i> What Should I Learn Next?
+                                </span>
+                                <span id="rec-urgency-badge" class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 hidden">High Priority</span>
+                            </div>
+                            <h3 id="rec-action-title" class="text-xl font-extrabold text-white font-display">Prerequisite Diagnosis Active</h3>
+                            <p id="rec-action-reason" class="text-sm text-gray-300 max-w-2xl leading-relaxed">
+                                Analyzing your conceptual knowledge graph and recent mastery signals to chart your optimal learning path.
+                            </p>
+                        </div>
+                        <button id="rec-action-btn" onclick="startRecommendedLesson()" class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3 px-6 rounded-2xl shadow-lg hover:shadow-indigo-500/25 transition-all text-xs flex items-center gap-2 shrink-0">
+                            <i class="fa-solid fa-play"></i> <span id="rec-btn-text">Start Recommended Lesson</span>
+                        </button>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <!-- Main Columns: Roadmap & Graph -->
                     <div class="lg:col-span-2 space-y-8">
                         <!-- Visual Knowledge Roadmap -->
                         <div class="bg-[#0C0F17] border border-[#1B2233] p-6 rounded-3xl relative">
-                            <h3 class="font-bold text-white text-lg mb-4 font-display flex items-center gap-2">
-                                <i class="fa-solid fa-diagram-project text-indigo-500"></i> Interactive Knowledge Graph
-                            </h3>
-                            <div class="relative w-full overflow-x-auto py-6 flex items-center justify-around gap-4 min-h-[140px] bg-[#07090E]/60 border border-[#1B2233] rounded-2xl" id="roadmap-container">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-bold text-white text-lg font-display flex items-center gap-2">
+                                    <i class="fa-solid fa-diagram-project text-indigo-500"></i> Interactive Knowledge Map
+                                </h3>
+                                <div class="flex items-center gap-2 text-[10px] font-semibold text-gray-400">
+                                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Mastered</span>
+                                    <span class="flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-amber-500"></span> In Progress</span>
+                                    <span class="flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-rose-500"></span> Needs Review</span>
+                                    <span class="flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-gray-600"></span> Not Started</span>
+                                </div>
+                            </div>
+                            <div class="relative w-full overflow-x-auto py-4 flex flex-wrap items-center justify-start gap-3 min-h-[140px] bg-[#07090E]/60 border border-[#1B2233] rounded-2xl p-4" id="roadmap-container">
                                 <!-- Nodes rendered dynamically -->
                             </div>
                         </div>
 
                         <!-- Spaced Repetition Timeline & Study Planner -->
                         <div class="bg-[#0C0F17] border border-[#1B2233] p-6 rounded-3xl">
-                            <h3 class="font-bold text-white text-lg mb-4 font-display flex items-center gap-2">
-                                <i class="fa-solid fa-calendar-days text-indigo-500"></i> Today's Study Plan
-                            </h3>
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-bold text-white text-lg font-display flex items-center gap-2">
+                                    <i class="fa-solid fa-repeat text-indigo-500"></i> Today's Spaced Repetition Reviews
+                                </h3>
+                                <span id="due-review-count-badge" class="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-bold">0 Due</span>
+                            </div>
                             <div class="space-y-4" id="study-planner-container">
                                 <!-- Planner items dynamically injected -->
                             </div>
@@ -422,14 +455,14 @@
                         <div class="bg-gradient-to-b from-[#161B2B] to-[#0E121E] border border-indigo-500/30 p-6 rounded-3xl relative shadow-lg">
                             <div class="absolute top-4 right-4 w-2 h-2 bg-indigo-500 rounded-full animate-ping"></div>
                             <h3 class="font-bold text-white text-lg mb-3 font-display flex items-center gap-2">
-                                <i class="fa-solid fa-user-ninja text-indigo-400"></i> AI Coach Recommendation
+                                <i class="fa-solid fa-user-ninja text-indigo-400"></i> AI Coach Diagnostics
                             </h3>
                             <div class="space-y-4">
                                 <p id="coach-dashboard-tip" class="text-sm text-gray-300 leading-relaxed font-medium">
-                                    "You solved yesterday's active recall challenges on tree traversal with high precision, but pointers remain a recurring blocker. Let's spend 15 minutes reviewing pointer memory partitions before jumping into graphs today."
+                                    "Your foundational models are synchronizing. Complete active recall checks to unlock fine-grained cognitive suggestions."
                                 </p>
                                 <div class="bg-[#07090E]/80 border border-[#1B2233] p-3.5 rounded-xl">
-                                    <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Weak Concepts</div>
+                                    <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Detected Weak Spots</div>
                                     <div class="flex flex-wrap gap-2 mt-2" id="weak-concepts-list">
                                         <!-- badges injected -->
                                     </div>

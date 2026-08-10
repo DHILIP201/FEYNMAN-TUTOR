@@ -262,6 +262,8 @@ class ResponseValidator:
         repaired.setdefault("estimated_study_time", 4)
         repaired.setdefault("mastery_score", default_mastery)
         repaired.setdefault("sources", [])
+        if "evaluation" in repaired and isinstance(repaired["evaluation"], dict):
+            repaired["evaluation"] = repaired["evaluation"]
 
         print(f"[VALIDATOR] Response validated ({mode.value}) with {len(explanation.split())} words.")
         return DocumentBuilder.create_document(repaired)

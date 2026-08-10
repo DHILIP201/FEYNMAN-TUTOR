@@ -34,3 +34,4 @@ class TutorDocument(BaseModel):
     mastery_score: int
     sources: List[Any] = Field(default_factory=list)
     blocks: List[DocumentBlock] = Field(default_factory=list)
+    evaluation: Optional[Dict[str, Any]] = None

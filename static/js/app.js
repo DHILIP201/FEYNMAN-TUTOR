@@ -129,10 +129,15 @@ async function loadUserStats() {
     }
     
     try {
-        const response = await fetchAPI('/users/stats/');
-        if (response.ok) {
-            const data = await response.json();
-            
+        const [statsRes, recRes, srRes, mapRes] = await Promise.allSettled([
+            fetchAPI('/users/stats/'),
+            fetchAPI('/learner/recommendations/'),
+            fetchAPI('/learner/spaced-repetition/'),
+            fetchAPI('/learner/mastery-graph/')
+        ]);
+
+        if (statsRes.status === 'fulfilled' && statsRes.value.ok) {
+            const data = await statsRes.value.json();
             if (streakCount) {
                 streakCount.innerText = `${data.current_streak} Days`;
                 streakCount.title = data.current_streak === 0 ? "Complete your first study session to begin your streak." : `Longest Streak: ${data.longest_streak} Days`;
@@ -141,41 +146,106 @@ async function loadUserStats() {
             if (quizAccuracy) quizAccuracy.innerText = `${data.quiz_accuracy}%`;
             if (xpText) xpText.innerText = `${data.xp.toLocaleString()} XP`;
             if (retentionText) retentionText.innerText = data.retention_index;
-            
+        }
+
+        // 1. Process What to Learn Next Recommendations
+        if (recRes.status === 'fulfilled' && recRes.value.ok) {
+            const recData = await recRes.value.json();
+            const action = recData.primary_action;
+            const bannerTitle = document.getElementById('rec-action-title');
+            const bannerReason = document.getElementById('rec-action-reason');
+            const btnText = document.getElementById('rec-btn-text');
+            const urgencyBadge = document.getElementById('rec-urgency-badge');
+
+            if (action) {
+                window.currentRecommendedTopic = action.topic;
+                if (action.type === 'REPAIR_PREREQUISITE') {
+                    if (bannerTitle) bannerTitle.innerHTML = `<span class="text-amber-400"><i class="fa-solid fa-triangle-exclamation mr-2"></i>Strengthen Prerequisite: ${action.topic}</span>`;
+                    if (bannerReason) bannerReason.innerText = `${action.reason}`;
+                    if (btnText) btnText.innerText = `Reinforce ${action.topic} (${action.current_mastery}%)`;
+                    if (urgencyBadge) {
+                        urgencyBadge.innerText = "Prerequisite Blocker";
+                        urgencyBadge.classList.remove('hidden');
+                    }
+                } else if (action.type === 'SPACED_REVIEW') {
+                    if (bannerTitle) bannerTitle.innerHTML = `<span class="text-indigo-400"><i class="fa-solid fa-clock-rotate-left mr-2"></i>Spaced Review Due: ${action.topic}</span>`;
+                    if (bannerReason) bannerReason.innerText = `${action.reason}`;
+                    if (btnText) btnText.innerText = `Review ${action.topic} (${action.current_mastery}%)`;
+                    if (urgencyBadge) {
+                        urgencyBadge.innerText = "Review Due";
+                        urgencyBadge.classList.remove('hidden');
+                    }
+                } else if (action.type === 'REMEDY_WEAK_TOPIC') {
+                    if (bannerTitle) bannerTitle.innerHTML = `<span class="text-rose-400"><i class="fa-solid fa-bullseye mr-2"></i>Reinforce Weak Topic: ${action.topic}</span>`;
+                    if (bannerReason) bannerReason.innerText = `${action.reason}`;
+                    if (btnText) btnText.innerText = `Practice ${action.topic} (${action.current_mastery}%)`;
+                    if (urgencyBadge) {
+                        urgencyBadge.innerText = "Needs Attention";
+                        urgencyBadge.classList.remove('hidden');
+                    }
+                } else {
+                    if (bannerTitle) bannerTitle.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-flag-checkered mr-2"></i>Next Concept: ${action.topic}</span>`;
+                    if (bannerReason) bannerReason.innerText = `${action.reason}`;
+                    if (btnText) btnText.innerText = `Start Learning ${action.topic}`;
+                    if (urgencyBadge) urgencyBadge.classList.add('hidden');
+                }
+            }
+
+            // Populate Weak Spots
             if (weakList) {
                 weakList.innerHTML = '';
-                if (data.weak_concepts.length === 0) {
-                    weakList.innerHTML = `<span class="text-[10px] text-gray-500 italic">No weak concepts logged yet.</span>`;
+                const ws = recData.weak_spots || [];
+                if (ws.length === 0) {
+                    weakList.innerHTML = `<span class="text-[10px] text-gray-500 italic">No recurring misconceptions detected.</span>`;
                 } else {
-                    data.weak_concepts.forEach(c => {
-                        weakList.innerHTML += `<span class="text-[10px] bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-1 rounded-md font-bold">${c}</span>`;
+                    ws.forEach(item => {
+                        weakList.innerHTML += `
+                            <button onclick="startTopicLesson('${item.topic}')" class="text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2.5 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5" title="Review ${item.topic}">
+                                <i class="fa-solid fa-circle-exclamation text-[9px]"></i> ${item.topic}: ${item.weak_concept}
+                            </button>
+                        `;
                     });
                 }
             }
-            
-            // Render real timeline events
+        }
+
+        // 2. Process Spaced Repetition Due List
+        if (srRes.status === 'fulfilled' && srRes.value.ok) {
+            const srData = await srRes.value.json();
+            const dueCountBadge = document.getElementById('due-review-count-badge');
+            if (dueCountBadge) {
+                dueCountBadge.innerText = `${srData.due_count} Due`;
+            }
+
             const plannerContainer = document.getElementById('study-planner-container');
             if (plannerContainer) {
-                if (data.timeline.length === 0) {
+                const allReviews = [...(srData.due_reviews || []), ...(srData.upcoming_reviews || [])];
+                if (allReviews.length === 0) {
                     plannerContainer.innerHTML = `
                         <div class="text-center py-6 border border-dashed border-[#1F293D] rounded-2xl">
-                            <p class="text-[11px] text-gray-500 font-bold leading-normal">No timeline logs found. Complete a study session to track progress!</p>
+                            <p class="text-[11px] text-gray-500 font-bold leading-normal">No scheduled spaced repetition reviews yet. Start a lesson to begin your retention schedule!</p>
                         </div>
                     `;
                 } else {
                     plannerContainer.innerHTML = `
-                        <div class="relative pl-6 border-l border-[#1F293D] ml-3 space-y-5 py-2">
-                            ${data.timeline.map(item => `
-                                <div class="relative">
-                                    <div class="absolute -left-[30px] top-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border border-[#0A0D14] flex items-center justify-center text-white text-[8px] font-bold"><i class="fa-solid fa-check"></i></div>
-                                    <div class="flex items-start justify-between gap-4">
-                                        <div>
-                                            <h4 class="text-xs font-bold text-white leading-none">${item.title}</h4>
-                                            <p class="text-[10px] text-gray-400 mt-1">${item.description}</p>
-                                            <span class="text-[9px] text-gray-500 font-bold block mt-1"><i class="fa-regular fa-clock mr-1"></i>${item.time}</span>
+                        <div class="space-y-3">
+                            ${allReviews.map(item => `
+                                <div class="bg-[#07090E]/70 border ${item.is_due ? 'border-indigo-500/40' : 'border-[#1F293D]'} p-3.5 rounded-xl flex items-center justify-between gap-4 transition-all">
+                                    <div class="space-y-1">
+                                        <div class="flex items-center gap-2">
+                                            <h4 class="text-xs font-extrabold text-white">${item.topic}</h4>
+                                            <span class="text-[9px] px-2 py-0.5 rounded font-bold uppercase ${item.is_due ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-gray-800 text-gray-400'}">
+                                                ${item.is_due ? 'Due Today' : 'Scheduled'}
+                                            </span>
                                         </div>
-                                        <span class="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold uppercase tracking-wider flex-shrink-0">+${item.xp} XP</span>
+                                        <div class="text-[10px] text-gray-400 flex items-center gap-3">
+                                            <span>Mastery: <b class="text-indigo-300">${item.mastery_score}%</b></span>
+                                            <span>Next Review: <b class="text-gray-300">${item.next_review_at || 'Soon'}</b></span>
+                                        </div>
                                     </div>
+                                    <button onclick="startTopicLesson('${item.topic}')" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 rounded-lg shadow transition-all flex-shrink-0">
+                                        <i class="fa-solid fa-play text-[10px] mr-1"></i> Review
+                                    </button>
                                 </div>
                             `).join('')}
                         </div>
@@ -183,9 +253,87 @@ async function loadUserStats() {
                 }
             }
         }
+
+        // 3. Render Knowledge Map Nodes
+        if (mapRes.status === 'fulfilled' && mapRes.value.ok) {
+            const mapData = await mapRes.value.json();
+            window.latestKnowledgeMap = mapData;
+            renderDynamicKnowledgeMap(mapData);
+        }
+
     } catch (err) {
         console.error(err);
     }
+}
+
+function startRecommendedLesson() {
+    const topic = window.currentRecommendedTopic || "Recursion";
+    startTopicLesson(topic);
+}
+
+function startTopicLesson(topic) {
+    // Switch to chat view and prompt the tutor
+    const paneDashboard = document.getElementById('pane-dashboard');
+    const paneChat = document.getElementById('pane-chat');
+    if (paneDashboard) paneDashboard.classList.add('hidden');
+    if (paneChat) paneChat.classList.remove('hidden');
+
+    const input = document.getElementById('user-input');
+    if (input) {
+        input.value = `Teach me step by step ${topic}`;
+        const sendBtn = document.getElementById('send-btn');
+        if (sendBtn) sendBtn.click();
+    }
+}
+
+function renderDynamicKnowledgeMap(mapData) {
+    const container = document.getElementById('roadmap-container');
+    if (!container || !mapData || !mapData.nodes) return;
+
+    container.innerHTML = '';
+
+    mapData.nodes.forEach(node => {
+        let statusBadge = '';
+        let borderClass = '';
+        let scoreText = '';
+
+        if (node.status === 'MASTERED') {
+            statusBadge = '<span class="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">MASTERED</span>';
+            borderClass = 'border-emerald-500/40 hover:border-emerald-400 hover:shadow-emerald-500/20';
+            scoreText = `<span class="text-sm font-extrabold text-emerald-300 font-display">${node.mastery_score}%</span>`;
+        } else if (node.status === 'IN_PROGRESS') {
+            statusBadge = '<span class="text-[9px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">IN PROGRESS</span>';
+            borderClass = 'border-amber-500/40 hover:border-amber-400 hover:shadow-amber-500/20';
+            scoreText = `<span class="text-sm font-extrabold text-amber-300 font-display">${node.mastery_score}%</span>`;
+        } else if (node.status === 'NEEDS_ATTENTION') {
+            statusBadge = '<span class="text-[9px] font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">NEEDS ATTENTION</span>';
+            borderClass = 'border-rose-500/40 hover:border-rose-400 hover:shadow-rose-500/20';
+            scoreText = `<span class="text-sm font-extrabold text-rose-300 font-display">${node.mastery_score}%</span>`;
+        } else {
+            // NOT_STARTED
+            statusBadge = '<span class="text-[9px] font-bold px-2 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700">NOT STARTED</span>';
+            borderClass = 'border-[#1F293D] hover:border-indigo-500/40';
+            scoreText = `<span class="text-sm font-bold text-gray-500 font-display">--</span>`;
+        }
+
+        const nodeCard = document.createElement('div');
+        nodeCard.className = `bg-[#0E1320] border ${borderClass} p-3.5 rounded-2xl shadow-md transition-all duration-300 cursor-pointer flex flex-col justify-between min-w-[150px] flex-1 max-w-[220px] group`;
+        nodeCard.onclick = () => startTopicLesson(node.topic);
+
+        nodeCard.innerHTML = `
+            <div class="flex items-center justify-between gap-2 mb-2">
+                <span class="text-[9px] text-gray-500 font-bold uppercase tracking-wider truncate">${node.category}</span>
+                ${statusBadge}
+            </div>
+            <h4 class="text-xs font-extrabold text-white group-hover:text-indigo-400 transition-colors truncate mb-2">${node.topic}</h4>
+            <div class="flex items-center justify-between pt-1 border-t border-[#1F293D]/60">
+                <span class="text-[9px] text-gray-400 font-semibold">Mastery</span>
+                ${scoreText}
+            </div>
+        `;
+        container.appendChild(nodeCard);
+    });
+}
 }
 
 function initDragAndDrop() {

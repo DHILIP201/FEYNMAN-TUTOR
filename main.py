@@ -918,43 +918,19 @@ def update_learner_profile_endpoint(
 
 @app.get("/learner/mastery-graph/")
 def get_mastery_graph(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Returns the user's topic mastery nodes, weak spots, and connected knowledge graph edges."""
-    masteries = db.query(TopicMastery).filter(TopicMastery.user_id == current_user.id).all()
-    nodes = []
-    edges = []
+    """Returns the user's knowledge map with distinct NOT_STARTED, NEEDS_ATTENTION, IN_PROGRESS, and MASTERED statuses."""
+    return learner_memory_engine.get_user_knowledge_map(db, current_user.id)
 
-    for m in masteries:
-        nodes.append({
-            "topic": m.canonical_topic,
-            "mastery_score": m.mastery_score,
-            "confidence_score": m.confidence_score,
-            "attempt_count": m.attempt_count,
-            "correct_count": m.correct_count,
-            "incorrect_count": m.incorrect_count,
-            "weak_spots": json.loads(m.weak_spots or "[]"),
-            "next_review_at": m.next_review_at.isoformat() if m.next_review_at else None,
-            "last_studied_at": m.last_studied_at.isoformat() if m.last_studied_at else None
-        })
+@app.get("/learner/recommendations/")
+def get_learner_recommendations(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Returns adaptive learning recommendations, prerequisite blockers, and review priorities."""
+    return learner_memory_engine.recommend_next_learning_path(db, current_user.id)
 
-    # Fetch relevant knowledge graph edges
-    user_topics = [m.canonical_topic for m in masteries]
-    if user_topics:
-        db_edges = db.query(KnowledgeEdge).filter(
-            (KnowledgeEdge.source_topic.in_(user_topics)) | (KnowledgeEdge.target_topic.in_(user_topics))
-        ).all()
-        for e in db_edges:
-            edges.append({
-                "source": e.source_topic,
-                "target": e.target_topic,
-                "relationship": e.relationship_type,
-                "weight": e.weight
-            })
-
-    return {
-        "nodes": nodes,
-        "edges": edges,
-        "total_topics_tracked": len(nodes)
-    }
+class LearningSignalRequest(BaseModel):
+    canonical_topic: str
+    is_correct: bool
+    weak_concept: Optional[str] = None
+    evaluation_id: Optional[str] = None
 
 @app.post("/learner/learning-signal/")
 def record_learning_signal_endpoint(
@@ -972,7 +948,7 @@ def record_learning_signal_endpoint(
         canonical_topic=req.canonical_topic,
         is_correct=req.is_correct,
         weak_concept=req.weak_concept,
-        confidence_delta=req.confidence_delta
+        evaluation_id=req.evaluation_id
     )
     return {
         "message": "Learning signal recorded successfully",
@@ -1400,10 +1376,45 @@ async def tutor_chat(
         tutor_doc = feynman_engine.validate_and_build_document(raw_json, session.mastery)
         tutor_data = tutor_doc.model_dump()
         tutor_data["blocks"] = feynman_engine.build_document_blocks(tutor_data)
-        mastery_score = int(tutor_data.get("mastery_score", session.mastery))
 
-        # Update session mastery
-        session.mastery = mastery_score
+        # Automatic Answer Evaluation Pipeline (Prior-Question Guard + Backend Ownership + Idempotency)
+        had_prior_question = False
+        for m in reversed(history_msgs):
+            if m.role in ("model", "ai"):
+                try:
+                    d_prev = json.loads(m.content)
+                    if d_prev.get("mini_quiz") or d_prev.get("reflection_prompt"):
+                        had_prior_question = True
+                        break
+                except Exception:
+                    pass
+
+        eval_block = tutor_data.get("evaluation")
+        if eval_block and isinstance(eval_block, dict):
+            is_answering = eval_block.get("is_answering_prior_question", False)
+            if is_answering and had_prior_question:
+                eval_id = f"eval_{request.session_id}_{len(history_msgs)}"
+                is_corr = bool(eval_block.get("is_correct", False))
+                detected_weakness = eval_block.get("detected_misconception")
+
+                mastery_obj, sig_res = learner_memory_engine.record_learning_signal(
+                    db=db,
+                    user_id=current_user.id,
+                    canonical_topic=cleaned_user_topic,
+                    is_correct=is_corr,
+                    weak_concept=detected_weakness,
+                    evaluation_id=eval_id
+                )
+                session.mastery = mastery_obj.mastery_score
+                tutor_data["mastery_score"] = mastery_obj.mastery_score
+                tutor_data["learning_signal"] = sig_res
+            else:
+                # Normal user message (not an answer to a question): keep session mastery intact
+                tutor_data["mastery_score"] = session.mastery
+        else:
+            # Fallback mastery preservation
+            mastery_score = int(tutor_data.get("mastery_score", session.mastery))
+            session.mastery = mastery_score
 
         ai_chat_msg = ChatMessage(
             session_id=request.session_id,
