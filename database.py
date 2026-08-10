@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, Float, String, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 
@@ -39,6 +39,9 @@ class User(Base):
     last_login = Column(DateTime, nullable=True)
 
     sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
+    learner_profile = relationship("LearnerProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    topic_masteries = relationship("TopicMastery", back_populates="user", cascade="all, delete-orphan")
+    learning_events = relationship("LearningEvent", back_populates="user", cascade="all, delete-orphan")
 
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
@@ -76,6 +79,80 @@ class PasswordResetOTP(Base):
     is_used = Column(Boolean, default=False, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+# ----------------------------------------------------
+# TRACK B: PERSISTENT LEARNER MEMORY & KNOWLEDGE GRAPH
+# ----------------------------------------------------
+
+class LearnerProfile(Base):
+    __tablename__ = "learner_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, index=True, nullable=False)
+    learning_level = Column(String, default="beginner", nullable=False) # beginner, intermediate, advanced
+    preferred_explanation_style = Column(String, default="practical", nullable=False) # practical, theoretical, visual, analogy
+    strengths = Column(Text, default="[]", nullable=False) # JSON list of topic strings
+    weaknesses = Column(Text, default="[]", nullable=False) # JSON list of misconception/weak area strings
+    goals = Column(Text, default="[]", nullable=False) # JSON list of goals
+    total_study_minutes = Column(Integer, default=0, nullable=False)
+    aggregate_mastery = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="learner_profile")
+
+class TopicMastery(Base):
+    __tablename__ = "topic_masteries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    canonical_topic = Column(String, index=True, nullable=False)
+    mastery_score = Column(Integer, default=0, nullable=False) # 0 to 100
+    confidence_score = Column(Float, default=0.5, nullable=False) # 0.0 to 1.0
+    attempt_count = Column(Integer, default=0, nullable=False)
+    correct_count = Column(Integer, default=0, nullable=False)
+    incorrect_count = Column(Integer, default=0, nullable=False)
+    last_studied_at = Column(DateTime, default=datetime.utcnow)
+    next_review_at = Column(DateTime, default=datetime.utcnow)
+    weak_spots = Column(Text, default="[]", nullable=False) # JSON list of weak sub-concepts
+    preferred_lesson_mode = Column(String, default="STANDARD", nullable=False)
+    difficulty = Column(String, default="beginner", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="topic_masteries")
+
+class KnowledgeNode(Base):
+    __tablename__ = "knowledge_nodes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    canonical_topic = Column(String, unique=True, index=True, nullable=False)
+    category = Column(String, index=True, nullable=False) # e.g. "Computer Science", "Artificial Intelligence", "Mathematics"
+    description = Column(Text, default="", nullable=False)
+    difficulty_tier = Column(Integer, default=1, nullable=False) # 1: Foundational, 2: Core, 3: Advanced
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class KnowledgeEdge(Base):
+    __tablename__ = "knowledge_edges"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_topic = Column(String, index=True, nullable=False) # Prerequisite concept
+    target_topic = Column(String, index=True, nullable=False) # Downstream concept
+    relationship_type = Column(String, default="PREREQUISITE_OF", nullable=False) # PREREQUISITE_OF, RELATED_TO, SUBTOPIC_OF, EXTENDS
+    weight = Column(Float, default=1.0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class LearningEvent(Base):
+    __tablename__ = "learning_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    canonical_topic = Column(String, index=True, nullable=False)
+    event_type = Column(String, index=True, nullable=False) # lesson_started, lesson_completed, quiz_answered, quiz_correct, quiz_incorrect, concept_reviewed, mastery_updated
+    metadata_json = Column(Text, default="{}", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="learning_events")
 
 # Create tables
 def init_db():

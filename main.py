@@ -9,7 +9,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import base64
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, status, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,8 +26,28 @@ import secrets
 from datetime import datetime, timedelta
 
 # Import our custom modules
-from database import init_db, SessionLocal, get_db, User, ChatSession, ChatMessage, PasswordResetOTP
-from ai_engine import feynman_engine, gemini_gateway, rate_limiter, RateLimitTier
+from database import (
+    init_db, 
+    SessionLocal, 
+    get_db, 
+    User, 
+    ChatSession, 
+    ChatMessage, 
+    PasswordResetOTP,
+    LearnerProfile,
+    TopicMastery,
+    KnowledgeNode,
+    KnowledgeEdge,
+    LearningEvent
+)
+from ai_engine import (
+    feynman_engine, 
+    gemini_gateway, 
+    rate_limiter, 
+    RateLimitTier,
+    learner_memory_engine,
+    seed_foundational_knowledge_graph
+)
 from security import (
     get_password_hash, 
     verify_password, 
@@ -112,6 +132,14 @@ def open_browser():
 def startup_event():
     init_db()  # Initialize SQLite Tables
     
+    # Initialize / Seed Track B Knowledge Graph
+    try:
+        db = SessionLocal()
+        seed_foundational_knowledge_graph(db)
+        db.close()
+    except Exception as e:
+        print(f"[KnowledgeGraph Seed Error] {e}")
+
     # STEP 6: Verify startup parameters
     print("\n==========================================")
     print("FEYNMAN TUTOR SYSTEM STARTUP LOGS")
@@ -121,6 +149,7 @@ def startup_event():
     print(f"Gemini Key Pool: {slots_count} slots configured ({avail_count} active/healthy)")
     print(f"Selected model: {gemini_gateway.model_name}")
     print(f"AUTH_MODE: {os.getenv('AUTH_MODE', 'development')}")
+    print("Track B Learner Memory & Knowledge Graph: ACTIVE")
     print("==========================================\n")
     
     # Pre-seed Guest Demo PDF for View Source Document action
@@ -834,6 +863,171 @@ def get_user_stats(current_user: User = Depends(get_current_user), db: Session =
         "timeline": timeline
     }
 
+# ----------------------------------------------------
+# TRACK B: LEARNER MEMORY & KNOWLEDGE GRAPH ENDPOINTS
+# ----------------------------------------------------
+
+class LearningSignalRequest(BaseModel):
+    canonical_topic: str
+    is_correct: bool
+    weak_concept: Optional[str] = None
+    confidence_delta: float = 0.0
+
+class ProfileUpdateRequest(BaseModel):
+    learning_level: Optional[str] = None
+    preferred_style: Optional[str] = None
+    goals: Optional[List[str]] = None
+
+@app.get("/learner/profile/")
+def get_learner_profile(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Fetches persistent learner profile and cognitive preferences."""
+    profile = learner_memory_engine.get_or_create_profile(db, current_user.id)
+    return {
+        "user_id": current_user.id,
+        "name": current_user.name,
+        "email": current_user.email,
+        "learning_level": profile.learning_level,
+        "preferred_explanation_style": profile.preferred_explanation_style,
+        "strengths": json.loads(profile.strengths or "[]"),
+        "weaknesses": json.loads(profile.weaknesses or "[]"),
+        "goals": json.loads(profile.goals or "[]"),
+        "total_study_minutes": profile.total_study_minutes,
+        "aggregate_mastery": profile.aggregate_mastery
+    }
+
+@app.put("/learner/profile/")
+def update_learner_profile_endpoint(
+    req: ProfileUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Updates learner level, explanation style, and educational goals."""
+    profile = learner_memory_engine.update_profile_preferences(
+        db,
+        user_id=current_user.id,
+        learning_level=req.learning_level,
+        preferred_style=req.preferred_style,
+        goals=req.goals
+    )
+    return {
+        "message": "Learner profile updated successfully",
+        "learning_level": profile.learning_level,
+        "preferred_style": profile.preferred_explanation_style,
+        "goals": json.loads(profile.goals or "[]")
+    }
+
+@app.get("/learner/mastery-graph/")
+def get_mastery_graph(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Returns the user's topic mastery nodes, weak spots, and connected knowledge graph edges."""
+    masteries = db.query(TopicMastery).filter(TopicMastery.user_id == current_user.id).all()
+    nodes = []
+    edges = []
+
+    for m in masteries:
+        nodes.append({
+            "topic": m.canonical_topic,
+            "mastery_score": m.mastery_score,
+            "confidence_score": m.confidence_score,
+            "attempt_count": m.attempt_count,
+            "correct_count": m.correct_count,
+            "incorrect_count": m.incorrect_count,
+            "weak_spots": json.loads(m.weak_spots or "[]"),
+            "next_review_at": m.next_review_at.isoformat() if m.next_review_at else None,
+            "last_studied_at": m.last_studied_at.isoformat() if m.last_studied_at else None
+        })
+
+    # Fetch relevant knowledge graph edges
+    user_topics = [m.canonical_topic for m in masteries]
+    if user_topics:
+        db_edges = db.query(KnowledgeEdge).filter(
+            (KnowledgeEdge.source_topic.in_(user_topics)) | (KnowledgeEdge.target_topic.in_(user_topics))
+        ).all()
+        for e in db_edges:
+            edges.append({
+                "source": e.source_topic,
+                "target": e.target_topic,
+                "relationship": e.relationship_type,
+                "weight": e.weight
+            })
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "total_topics_tracked": len(nodes)
+    }
+
+@app.post("/learner/learning-signal/")
+def record_learning_signal_endpoint(
+    req: LearningSignalRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Evaluates learning evidence (quiz result, active recall) and authoritatively
+    mutates backend mastery, confidence, weak spots, and review intervals.
+    """
+    mastery, signal_summary = learner_memory_engine.record_learning_signal(
+        db=db,
+        user_id=current_user.id,
+        canonical_topic=req.canonical_topic,
+        is_correct=req.is_correct,
+        weak_concept=req.weak_concept,
+        confidence_delta=req.confidence_delta
+    )
+    return {
+        "message": "Learning signal recorded successfully",
+        "signal": signal_summary
+    }
+
+@app.get("/learner/spaced-repetition/")
+def get_spaced_repetition_due(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Returns topics scheduled for review ordered by urgency."""
+    masteries = db.query(TopicMastery).filter(
+        TopicMastery.user_id == current_user.id
+    ).order_by(TopicMastery.next_review_at.asc()).all()
+
+    now = datetime.utcnow()
+    due_items = []
+    upcoming_items = []
+
+    for m in masteries:
+        item = {
+            "topic": m.canonical_topic,
+            "mastery_score": m.mastery_score,
+            "confidence_score": m.confidence_score,
+            "weak_spots": json.loads(m.weak_spots or "[]"),
+            "next_review_at": m.next_review_at.strftime("%Y-%m-%d %H:%M") if m.next_review_at else None,
+            "is_due": m.next_review_at <= now if m.next_review_at else True
+        }
+        if item["is_due"]:
+            due_items.append(item)
+        else:
+            upcoming_items.append(item)
+
+    return {
+        "due_count": len(due_items),
+        "due_reviews": due_items,
+        "upcoming_reviews": upcoming_items
+    }
+
+@app.get("/learner/events/")
+def get_learning_events(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Returns the immutable learning event audit ledger for the user."""
+    events = db.query(LearningEvent).filter(
+        LearningEvent.user_id == current_user.id
+    ).order_by(LearningEvent.created_at.desc()).limit(50).all()
+
+    return [
+        {
+            "id": ev.id,
+            "canonical_topic": ev.canonical_topic,
+            "event_type": ev.event_type,
+            "metadata": json.loads(ev.metadata_json or "{}"),
+            "created_at": ev.created_at.isoformat()
+        }
+        for ev in events
+    ]
+
 # --- TUTORING / FILE ENDPOINTS ---
 @app.post("/upload-document/")
 async def upload_document(
@@ -1085,6 +1279,20 @@ async def tutor_chat(
     if not cleaned_user_topic:
         cleaned_user_topic = request.user_message
 
+    # TRACK B: Record Lesson Event & Construct Persistent Learner Memory Context
+    learner_memory_engine.record_lesson_started(
+        db=db,
+        user_id=current_user.id,
+        canonical_topic=cleaned_user_topic,
+        lesson_mode=session.study_mode
+    )
+    memory_ctx = learner_memory_engine.build_memory_context(
+        db=db,
+        user_id=current_user.id,
+        canonical_topic=cleaned_user_topic
+    )
+    combined_context_text = f"{context_text}\n\n{memory_ctx['context_prompt_block']}"
+
     learning_plan = feynman_engine.plan_learning_strategy(
         user_message=cleaned_user_topic,
         current_mastery=session.mastery,
@@ -1093,7 +1301,7 @@ async def tutor_chat(
     system_prompt = feynman_engine.prepare_system_prompt(
         plan=learning_plan,
         mistakes_text=mistakes_text,
-        context_text=context_text
+        context_text=combined_context_text
     )
 
     try:

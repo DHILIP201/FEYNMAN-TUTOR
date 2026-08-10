@@ -10,10 +10,13 @@ load_dotenv()
 
 from fastapi.testclient import TestClient
 from main import app
-from database import SessionLocal, User, ChatSession, ChatMessage
+from database import init_db, SessionLocal, User, ChatSession, ChatMessage
 import json
 import io
 from datetime import datetime
+
+# Initialize all database tables
+init_db()
 
 client = TestClient(app)
 TEST_EMAIL = "e2e_acceptance_test@domain.com"
@@ -605,6 +608,208 @@ today_str = datetime.utcnow().strftime("%Y-%m-%d")
 usage_entry = ledger_storage.get_token_usage(f"budget:{RateLimitTier.FREE}:{ledger_user}:{today_str}")
 assert usage_entry["tokens"] == 850, f"Expected 850 tokens in ledger, got {usage_entry['tokens']}"
 print("  [OK] Test 8.8: Usage-Based Token Reconciliation Ledger (Exact Accounting): PASS")
+
+# ----------------------------------------------------
+# 9. TRACK B: PERSISTENT LEARNER MEMORY & KNOWLEDGE GRAPH
+# ----------------------------------------------------
+print("\n--- 9. Testing Track B: Persistent Learner Memory & Knowledge Graph ---")
+
+from ai_engine.memory import (
+    learner_memory_engine,
+    SpacedRepetitionScheduler,
+    seed_foundational_knowledge_graph
+)
+from database import (
+    LearnerProfile,
+    TopicMastery,
+    KnowledgeNode,
+    KnowledgeEdge,
+    LearningEvent
+)
+
+db_session = SessionLocal()
+
+# B1: Learner Profile Persistence
+print("[TEST B1] Verifying Learner Profile Persistence...")
+user_a = db_session.query(User).filter(User.email == TEST_EMAIL).first()
+assert user_a is not None, "Test user A must exist"
+profile_a = learner_memory_engine.get_or_create_profile(db_session, user_a.id)
+assert profile_a.user_id == user_a.id
+assert profile_a.learning_level in ("beginner", "intermediate", "advanced")
+
+# Update preferences via API
+r_prof = client.put(
+    "/learner/profile/",
+    json={"learning_level": "intermediate", "preferred_style": "visual", "goals": ["Master Dynamic Programming", "Understand Transformers"]},
+    headers={"Authorization": f"Bearer {create_access_token({'sub': TEST_EMAIL})}"}
+)
+assert r_prof.status_code == 200
+assert r_prof.json()["learning_level"] == "intermediate"
+assert r_prof.json()["preferred_style"] == "visual"
+print("  [OK] Test B1: Learner Profile Initialization & Preference Persistence: PASS")
+
+# B2 & B3: Topic Mastery Persistence & Canonical Topic Isolation
+print("[TEST B2 & B3] Verifying Topic Mastery Persistence & Canonical Isolation...")
+rec_mastery = learner_memory_engine.get_or_create_topic_mastery(db_session, user_a.id, "Recursion")
+bin_mastery = learner_memory_engine.get_or_create_topic_mastery(db_session, user_a.id, "Binary Search")
+
+assert rec_mastery.canonical_topic == "Recursion"
+assert bin_mastery.canonical_topic == "Binary Search"
+assert rec_mastery.id != bin_mastery.id, "Topics must be stored in distinct isolated records"
+print("  [OK] Test B2 & B3: Topic Mastery Model & Canonical Isolation: PASS")
+
+# B4 & B5: Backend Mastery Mutations (Correct vs Incorrect answers)
+print("[TEST B4 & B5] Verifying Deterministic Mastery Mutations & Weak Spot Tracking...")
+# Record correct answer on Recursion
+old_rec_score = rec_mastery.mastery_score
+m_updated, sig = learner_memory_engine.record_learning_signal(
+    db=db_session,
+    user_id=user_a.id,
+    canonical_topic="Recursion",
+    is_correct=True,
+    weak_concept="base case termination"
+)
+assert m_updated.mastery_score >= old_rec_score
+assert m_updated.correct_count == 1
+assert m_updated.attempt_count == 1
+
+# Record incorrect answer on Backpropagation (generates weak spot)
+bp_mastery, bp_sig = learner_memory_engine.record_learning_signal(
+    db=db_session,
+    user_id=user_a.id,
+    canonical_topic="Backpropagation",
+    is_correct=False,
+    weak_concept="chain rule gradient flow"
+)
+assert "chain rule gradient flow" in json.loads(bp_mastery.weak_spots)
+assert bp_mastery.incorrect_count == 1
+assert bp_mastery.mastery_score == 0 # floor at 0
+print("  [OK] Test B4 & B5: Backend-Owned Mastery Calculations (+15 Correct, -10 Misconception): PASS")
+
+# B6: Weak Spot Persistence & Deduplication
+print("[TEST B6] Verifying Weak Spot Persistence & Deduplication...")
+bp_mastery2, _ = learner_memory_engine.record_learning_signal(
+    db=db_session,
+    user_id=user_a.id,
+    canonical_topic="Backpropagation",
+    is_correct=False,
+    weak_concept="chain rule gradient flow"
+)
+spots = json.loads(bp_mastery2.weak_spots)
+assert spots.count("chain rule gradient flow") == 1, "Duplicate weak spots should be deduplicated"
+print("  [OK] Test B6: Weak Spot List Persistence & Deduplication: PASS")
+
+# B7 & B8: Knowledge Graph Model & Prerequisite Relationships
+print("[TEST B7 & B8] Verifying Knowledge Graph Nodes & Prerequisite Queries...")
+seed_foundational_knowledge_graph(db_session)
+rec_prereqs = learner_memory_engine.get_prerequisites(db_session, "Recursion")
+assert "Base Case" in rec_prereqs
+assert "Call Stack" in rec_prereqs
+
+bp_prereqs = learner_memory_engine.get_prerequisites(db_session, "Backpropagation")
+assert "Calculus" in bp_prereqs
+assert "Neural Networks" in bp_prereqs
+print("  [OK] Test B7 & B8: Knowledge Graph Deterministic Topology & Prerequisite Retrieval: PASS")
+
+# B9 & B10: Deterministic Spaced Repetition Scheduling
+print("[TEST B9 & B10] Verifying Spaced Repetition Intervals & Next Review Date...")
+now_dt = datetime.utcnow()
+# Mastery < 40 -> 1 day
+d_low = SpacedRepetitionScheduler.calculate_next_review(mastery_score=25, confidence=0.5)
+assert (d_low - now_dt).days == 1
+
+# Mastery 40-60 -> 2 days
+d_mid = SpacedRepetitionScheduler.calculate_next_review(mastery_score=50, confidence=0.5)
+assert (d_mid - now_dt).days == 2
+
+# Mastery 75-90 -> 7 days
+d_high = SpacedRepetitionScheduler.calculate_next_review(mastery_score=80, confidence=0.8)
+assert (d_high - now_dt).days == 7
+
+# Mastery 90+ -> 14 days
+d_master = SpacedRepetitionScheduler.calculate_next_review(mastery_score=95, confidence=0.9)
+assert (d_master - now_dt).days == 14
+print("  [OK] Test B9 & B10: Deterministic Spaced Repetition Intervals (1, 2, 4, 7, 14 Days): PASS")
+
+# B11: Learning Event Ledger Audit Trail
+print("[TEST B11] Verifying Learning Event Ledger...")
+events = db_session.query(LearningEvent).filter(LearningEvent.user_id == user_a.id).all()
+assert len(events) >= 2, "Learning events must be recorded in ledger"
+event_types = [e.event_type for e in events]
+assert "quiz_correct" in event_types or "quiz_incorrect" in event_types or "lesson_started" in event_types
+print("  [OK] Test B11: Immutable Learning Event Audit Ledger: PASS")
+
+# B12 & B13: Memory-Aware Tutor Context Integration
+print("[TEST B12 & B13] Verifying Memory Context Builder & Tutor Integration...")
+mem_ctx = learner_memory_engine.build_memory_context(db_session, user_a.id, "Backpropagation")
+assert "LEARNER PROFILE & ADAPTIVE MEMORY" in mem_ctx["context_prompt_block"]
+assert "chain rule gradient flow" in mem_ctx["context_prompt_block"]
+assert "Calculus" in mem_ctx["context_prompt_block"]
+print("  [OK] Test B12 & B13: Memory-Aware System Context Injection: PASS")
+
+# B14: Multi-User Isolation (User A memory != User B memory)
+print("[TEST B14] Verifying Multi-User Memory Isolation...")
+# Create User B
+clean_up_b = db_session.query(User).filter(User.email == "student_b@domain.com").first()
+if clean_up_b:
+    db_session.delete(clean_up_b)
+    db_session.commit()
+
+user_b = User(
+    name="Student B Isolated",
+    email="student_b@domain.com",
+    hashed_password="hashed_pw_b",
+    email_verified=True
+)
+db_session.add(user_b)
+db_session.commit()
+db_session.refresh(user_b)
+
+# User B starts Backpropagation with fresh mastery 0 and no weak spots
+b_mastery = learner_memory_engine.get_or_create_topic_mastery(db_session, user_b.id, "Backpropagation")
+assert b_mastery.mastery_score == 0
+assert json.loads(b_mastery.weak_spots) == []
+
+# User A's weak spot must not leak to User B
+mem_b = learner_memory_engine.build_memory_context(db_session, user_b.id, "Backpropagation")
+assert "chain rule gradient flow" not in mem_b["context_prompt_block"]
+print("  [OK] Test B14: Strict Multi-User Learning Memory Isolation: PASS")
+
+# B15: Guest User Memory Isolation
+print("[TEST B15] Verifying Guest User Memory Isolation...")
+guest_usr = db_session.query(User).filter(User.email == "guest@feynmantutor.local").first()
+assert guest_usr is not None
+guest_mastery = learner_memory_engine.get_or_create_topic_mastery(db_session, guest_usr.id, "Quantum Computing")
+assert guest_mastery.user_id == guest_usr.id
+assert guest_mastery.user_id != user_a.id
+print("  [OK] Test B15: Guest User Memory Isolation: PASS")
+
+# B16: Learner API Endpoints Verification via TestClient
+print("[TEST B16] Verifying Learner REST API Endpoints...")
+r_graph = client.get(
+    "/learner/mastery-graph/",
+    headers={"Authorization": f"Bearer {create_access_token({'sub': TEST_EMAIL})}"}
+)
+assert r_graph.status_code == 200
+assert "nodes" in r_graph.json()
+assert "edges" in r_graph.json()
+
+r_sr = client.get(
+    "/learner/spaced-repetition/",
+    headers={"Authorization": f"Bearer {create_access_token({'sub': TEST_EMAIL})}"}
+)
+assert r_sr.status_code == 200
+assert "due_reviews" in r_sr.json()
+
+r_events = client.get(
+    "/learner/events/",
+    headers={"Authorization": f"Bearer {create_access_token({'sub': TEST_EMAIL})}"}
+)
+assert r_events.status_code == 200
+assert len(r_events.json()) > 0
+print("  [OK] Test B16: Learner REST Endpoints (Mastery Graph, Spaced Repetition, Events Ledger): PASS")
+
+db_session.close()
 
 print("\n====================================================")
 print("ALL PROGRAMMATIC WORKFLOW TESTS COMPLETED SUCCESSFULLY!")

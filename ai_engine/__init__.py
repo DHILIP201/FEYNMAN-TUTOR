@@ -11,6 +11,7 @@ from .response_validator import ResponseValidator
 from .prompt_builder import PromptBuilder
 from .gemini_gateway import GeminiGateway, GeminiKeyPool, gemini_gateway
 from .rate_limiter import RateLimiter, RateLimitTier, rate_limiter
+from .memory import LearnerMemoryEngine, SpacedRepetitionScheduler, learner_memory_engine, seed_foundational_knowledge_graph
 
 __all__ = [
     "FeynmanCognitiveEngine",
@@ -27,5 +28,9 @@ __all__ = [
     "gemini_gateway",
     "RateLimiter",
     "RateLimitTier",
-    "rate_limiter"
+    "rate_limiter",
+    "LearnerMemoryEngine",
+    "SpacedRepetitionScheduler",
+    "learner_memory_engine",
+    "seed_foundational_knowledge_graph"
 ]
