@@ -2304,11 +2304,12 @@ function initMermaidDiagrams() {
                 securityLevel: 'loose'
             });
             
-            document.querySelectorAll('.mermaid').forEach(async (el) => {
+            // CRITICAL BUG FIX: Only query unrendered .mermaid elements, never re-parse or hide already rendered ones!
+            document.querySelectorAll('.mermaid:not([data-processed="true"])').forEach(async (el) => {
+                el.setAttribute('data-processed', 'true');
                 const graphDefinition = (el.textContent || '').trim();
                 if (!graphDefinition) return;
                 try {
-                    // Pre-parse to catch invalid syntax before rendering
                     const valid = await window.mermaid.parse(graphDefinition).catch(() => false);
                     if (valid) {
                         await window.mermaid.run({ nodes: [el] }).catch(() => renderFallbackDiagram(el));
@@ -2411,15 +2412,27 @@ function normalizeResponse(data) {
                                     (data.simple_explanation && (data.simple_explanation.includes("### Step 1") || data.simple_explanation.includes("### Step 2")) ? "STEP_BY_STEP" : "STANDARD")));
 
     let explanationContent = data.simple_explanation || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'summary' || b.type === 'explanation')?.content) : "");
+    const vizContent = data.visual_intuition || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'visualization')?.content) : "");
 
     switch (mode) {
         case "SIMPLIFY":
+            if (explanationContent) {
+                blocks.push({ type: 'explanation', content: explanationContent });
+            }
+            if (vizContent && !vizContent.includes("Fallback") && (vizContent.includes("graph ") || vizContent.includes("flowchart "))) {
+                blocks.push({ type: 'visualization', content: vizContent });
+            }
+            if (data.next_learning_step) {
+                blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
+            }
+            break;
+
         case "ANALOGY":
             if (explanationContent) {
                 blocks.push({ type: 'explanation', content: explanationContent });
             }
-            if (data.coach_recommendation) {
-                blocks.push({ type: 'coach_recommendation', content: data.coach_recommendation });
+            if (vizContent && !vizContent.includes("Fallback") && (vizContent.includes("graph ") || vizContent.includes("flowchart "))) {
+                blocks.push({ type: 'visualization', content: vizContent });
             }
             if (data.next_learning_step) {
                 blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
@@ -2430,8 +2443,11 @@ function normalizeResponse(data) {
             if (explanationContent) {
                 blocks.push({ type: 'explanation', content: explanationContent });
             }
-            if (data.coach_recommendation) {
-                blocks.push({ type: 'coach_recommendation', content: data.coach_recommendation });
+            if (vizContent && !vizContent.includes("Fallback") && (vizContent.includes("graph ") || vizContent.includes("flowchart "))) {
+                blocks.push({ type: 'visualization', content: vizContent });
+            }
+            if (data.reflection_prompt) {
+                blocks.push({ type: 'reflection_prompt', content: data.reflection_prompt });
             }
             if (data.next_learning_step) {
                 blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
@@ -2454,8 +2470,7 @@ function normalizeResponse(data) {
                 blocks.push({ type: 'explanation', content: explanationContent });
             }
 
-            const vizContent = data.visual_intuition || (Array.isArray(data.blocks) ? (data.blocks.find(b => b.type === 'visualization')?.content) : "");
-            if (vizContent && !vizContent.includes("Fallback")) {
+            if (vizContent && !vizContent.includes("Fallback") && (vizContent.includes("graph ") || vizContent.includes("flowchart "))) {
                 blocks.push({ type: 'visualization', content: vizContent });
             }
 
@@ -2467,7 +2482,7 @@ function normalizeResponse(data) {
                 blocks.push({ type: 'reflection_prompt', content: data.reflection_prompt });
             }
 
-            if (data.coach_recommendation) {
+            if (data.coach_recommendation && !data.coach_recommendation.toLowerCase().includes("review core mechanics and practice")) {
                 blocks.push({ type: 'coach_recommendation', content: data.coach_recommendation });
             }
 
@@ -2515,14 +2530,19 @@ const BLOCK_RENDERERS = {
             <div class="text-[11px] text-emerald-400/80 italic mt-2">Can you explain this back in simple terms as if teaching a peer?</div>
         </div>
     `,
-    coach_recommendation: (context, block) => `
-        <div class="mt-4 border border-amber-900/40 rounded-xl bg-[#141009] p-4 shadow-sm">
-            <div class="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider mb-2">
-                <i class="fa-solid fa-user-ninja text-amber-400"></i> AI Tutor Coaching Tip
+    coach_recommendation: (context, block) => {
+        if (!block.content || block.content.trim() === "" || block.content.toLowerCase().includes("review core mechanics and practice")) {
+            return "";
+        }
+        return `
+            <div class="mt-4 border border-amber-900/40 rounded-xl bg-[#141009] p-4 shadow-sm">
+                <div class="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider mb-2">
+                    <i class="fa-solid fa-user-ninja text-amber-400"></i> AI Tutor Coaching Tip
+                </div>
+                <div class="text-xs text-amber-200/90 leading-relaxed">${safeMarkdown(block.content || "")}</div>
             </div>
-            <div class="text-xs text-amber-200/90 leading-relaxed">${safeMarkdown(block.content || "")}</div>
-        </div>
-    `,
+        `;
+    },
     next_learning_step: (context, block) => `
         <div class="mt-4 border border-sky-900/50 rounded-xl bg-[#09131C] p-4 flex items-center justify-between shadow-sm">
             <div class="flex items-center gap-3">
@@ -2564,6 +2584,7 @@ function renderVisualizationBlock(cardUniqueId, visualContent) {
         return "";
     }
     const vizId = `viz-body-${cardUniqueId}`;
+    const mermaidId = `mermaid-${cardUniqueId}`;
     return `
         <div class="border border-[#222833] rounded-xl bg-[#0B0D12] overflow-hidden mt-4 shadow-sm">
             <div class="px-4 py-2 bg-[#11141A] border-b border-[#222833] flex items-center justify-between">
@@ -2572,7 +2593,7 @@ function renderVisualizationBlock(cardUniqueId, visualContent) {
                 </div>
             </div>
             <div id="${vizId}" class="p-4 bg-[#0B0D12]">
-                <div class="mermaid p-3 bg-[#0B0D12] rounded-md text-xs font-mono text-indigo-300 border border-[#222833]">
+                <div id="${mermaidId}" class="mermaid p-3 bg-[#0B0D12] rounded-md text-xs font-mono text-indigo-300 border border-[#222833]">
                     ${visualContent}
                 </div>
             </div>

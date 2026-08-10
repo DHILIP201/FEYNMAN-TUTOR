@@ -44,36 +44,58 @@ class FeynmanCognitiveEngine:
         """
         Generates an intent-aware structured learning document if upstream API providers hit transient rate limits.
         """
-        clean_query = user_message.strip().rstrip("?").strip()
+        from .response_validator import extract_canonical_topic
+        canonical_topic = extract_canonical_topic(user_message)
         msg_lower = user_message.lower()
 
         if "step by step" in msg_lower or "teach me" in msg_lower:
             simple_exp = (
-                f"### Step 1: Foundational Concept\n{clean_query} introduces fundamental operational principles.\n\n"
-                f"### Step 2: Mechanical Transformation\nData and inputs flow through structured processing stages to compute valid outputs.\n\n"
-                f"### Step 3: Practical Application\nInputs are verified and evaluated to ensure accurate results."
+                f"### Step 1 — Core Foundation of {canonical_topic}\n"
+                f"{canonical_topic} begins by establishing how raw inputs enter the system and what problem it solves. Understanding the primary objective before diving into mechanics ensures a solid mental foundation.\n\n"
+                f"> 🎯 **Step 1 Checkpoint:** Before moving on, can you identify what the primary input to {canonical_topic} represents?\n\n"
+                f"### Step 2 — Information Flow and Mechanics\n"
+                f"Data and signals move through intermediate stages, each applying mathematical or algorithmic transformations. Each layer or operation refines the data to extract patterns or sort elements.\n\n"
+                f"> 🎯 **Step 2 Checkpoint:** What transformation happens to the data between the initial input and intermediate stages?\n\n"
+                f"### Step 3 — Decision Rules & Output Calculation\n"
+                f"Once intermediate representations are computed, decision rules (such as threshold activation functions or base cases) determine the final output prediction or result.\n\n"
+                f"> 🎯 **Step 3 Checkpoint:** How does the system decide whether an output meets the required threshold?\n\n"
+                f"### Step 4 — Feedback & Complete System Integration\n"
+                f"Finally, feedback mechanisms (such as error loss calculation or recursive unwinding) optimize parameters so future iterations become faster and more accurate.\n\n"
+                f"> 🎯 **Step 4 Checkpoint:** How does feedback adjust internal parameters to improve accuracy over time?"
             )
-        elif "simplify" in msg_lower:
-            simple_exp = f"Imagine explaining {clean_query} using a simple story. Inputs enter a system, undergo clear processing steps, and produce an understandable result without complex technical jargon."
+            mode = "STEP_BY_STEP"
+        elif "simplify" in msg_lower or "simpler" in msg_lower or "simple" in msg_lower:
+            simple_exp = (
+                f"Imagine {canonical_topic} as a simple filter. Raw information goes in, "
+                f"gets organized according to simple rules, and produces a clear, accurate result without unnecessary complexity."
+            )
+            mode = "SIMPLIFY"
         elif "analogy" in msg_lower:
-            simple_exp = f"Think of {clean_query} like a well-organized team. Each member handles one specialized task, passing their results to the next member until the final decision is reached."
+            simple_exp = (
+                f"Think of {canonical_topic} like a well-coordinated restaurant kitchen. "
+                f"Each chef handles one specialized task (prepping, cooking, plating) and passes the dish to the next station until the final meal is served."
+            )
+            mode = "ANALOGY"
         else:
             simple_exp = (
-                f"Understanding **{clean_query}** starts with looking at how information flows through a system. "
-                f"Inputs are analyzed, transformed through processing mechanics, and evaluated to produce accurate predictions or results."
+                f"Understanding **{canonical_topic}** starts with examining how information flows through the system. "
+                f"Inputs are analyzed, transformed through underlying algorithmic mechanics, and evaluated to produce reliable predictions or verified results."
             )
+            mode = "STANDARD"
 
         raw_data = {
-            "cognitive_trace": "Active recall evaluation model active. Processing query context...",
+            "cognitive_trace": f"Active recall evaluation model active. Processing {canonical_topic} context...",
+            "lesson_mode": mode,
+            "canonical_topic": canonical_topic,
             "simple_explanation": simple_exp,
-            "why_it_works": f"Underlying mechanics of {clean_query} process inputs and optimize output parameters.",
-            "example": f"Like a smart filter inspecting incoming data before making a classification.",
-            "common_mistake": "Confusing initial input parameters with final computed predictions.",
-            "mini_quiz": f"What is the primary objective when working with {clean_query}?",
-            "reflection_prompt": f"How would you explain the core mechanism of {clean_query} to a peer?",
-            "coach_recommendation": f"Focus on understanding the flow of data across {clean_query}.",
-            "visual_intuition": f"graph TD;\n  Start[{clean_query}] --> Process[Input Transformation];\n  Process --> Outcome[Validated Result];",
-            "next_learning_step": f"Advanced applications of {clean_query}",
+            "why_it_works": f"Underlying mechanics of {canonical_topic} process structured parameters and optimize output states.",
+            "example": f"Like a smart classifier inspecting incoming data packets before making a routing decision.",
+            "common_mistake": f"Confusing initial input parameters with computed output states.",
+            "mini_quiz": f"What is the primary objective when working with {canonical_topic}?",
+            "reflection_prompt": f"How would you explain the core mechanism of {canonical_topic} to a peer?",
+            "coach_recommendation": f"Focus on understanding the flow of data across {canonical_topic}.",
+            "visual_intuition": "",
+            "next_learning_step": f"Advanced applications of {canonical_topic}",
             "estimated_study_time": 4,
             "mastery_score": min(100, current_mastery + 10),
             "sources": sources
@@ -82,3 +104,4 @@ class FeynmanCognitiveEngine:
         return doc.model_dump()
 
 feynman_engine = FeynmanCognitiveEngine()
+

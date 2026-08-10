@@ -1142,9 +1142,12 @@ async def tutor_chat(
             db.commit()
             return tutor_data
 
-        # Parse and validate full JSON response
-        tutor_data = json.loads(response.text)
-        tutor_data["sources"] = sources_citation
+        # Parse and validate full JSON response through canonical validator
+        raw_json = json.loads(response.text)
+        raw_json["sources"] = sources_citation
+        raw_json["canonical_topic"] = cleaned_user_topic
+        tutor_doc = feynman_engine.validate_and_build_document(raw_json, session.mastery)
+        tutor_data = tutor_doc.model_dump()
         tutor_data["blocks"] = feynman_engine.build_document_blocks(tutor_data)
         mastery_score = int(tutor_data.get("mastery_score", session.mastery))
 

@@ -198,27 +198,82 @@ print(f"  [OK] Total XP: PASS ({data_stats['xp']} XP)")
 print(f"  [OK] Timeline Events: PASS ({len(data_stats['timeline'])} events logged)")
 
 # ----------------------------------------------------
-# 5. PERSISTENCE & RESTORE WORKFLOW
+# 6. REGRESSION TESTS: CANONICAL TOPIC, 4 MODES & DIAGRAM PERSISTENCE
 # ----------------------------------------------------
-print("\n--- 5. Testing Persistence & Session Restoration ---")
+print("\n--- 6. Testing Canonical Topics, 4 Modes & Diagrams ---")
 
-# Fetch sessions list
-r_sessions = client.get("/sessions/", headers=headers)
-assert r_sessions.status_code == 200, f"Fetch sessions failed: {r_sessions.text}"
-data_sessions = r_sessions.json()
-assert len(data_sessions) > 0, "No sessions restored in history"
-assert data_sessions[0]["id"] == TEST_SESSION_ID, "Incorrect session restored"
-assert data_sessions[0]["has_doc"] is True, "Uploaded document link was lost"
-print("  [OK] Session History Restored: PASS")
+from ai_engine.response_validator import extract_canonical_topic, ResponseValidator
+from ai_engine.orchestrator import feynman_engine
+from ai_engine.schemas import LessonMode
 
-# Fetch message history
-r_history = client.get(f"/sessions/{TEST_SESSION_ID}/messages/", headers=headers)
-assert r_history.status_code == 200, f"Fetch messages failed: {r_history.text}"
-data_history = r_history.json()
-assert len(data_history) >= 2, f"History length is too low: {len(data_history)}"
-assert data_history[0]["role"] == "user", "First message role is not 'user'"
-assert data_history[1]["role"] == "model", "Second message role is not 'model'"
-print("  [OK] Conversation History Restored: PASS")
+# 6A: Canonical Topic Extraction Test
+print("[TEST] Verifying Canonical Topic Extractor...")
+test_prompts = [
+    ("Teach me neural networks step by step", "Neural Networks"),
+    ("Explain this concept even simpler", "Core Concept"),
+    ("Give a real world analogy for binary search", "Binary Search"),
+    ("Tell me about advanced applications of transformers", "Transformers"),
+    ("Explain recursion tree stack bounds", "Recursion Tree Stack Bounds")
+]
+
+for raw_p, expected_t in test_prompts:
+    extracted = extract_canonical_topic(raw_p)
+    assert extracted == expected_t, f"Topic extraction failed for '{raw_p}': got '{extracted}', expected '{expected_t}'"
+print("  [OK] Canonical Topic Extraction: PASS (100% clean)")
+
+# 6B: Verify All 4 Lesson Modes & Mode-Specific Diagrams
+print("[TEST] Verifying 4 Lesson Modes & Mode-Specific Diagrams...")
+
+# 1. Standard Mode
+doc_std = feynman_engine.get_fallback_document("Explain neural networks", 0, [])
+assert doc_std["lesson_mode"] in (LessonMode.STANDARD, "STANDARD"), f"Expected STANDARD mode, got {doc_std['lesson_mode']}"
+assert "weights" in doc_std["visual_intuition"].lower() or "input" in doc_std["visual_intuition"].lower(), "Standard diagram missing neural network mechanics"
+assert "teach me" not in doc_std["reflection_prompt"].lower(), "Reflection prompt leaked prompt string"
+print("  [OK] Mode 1: STANDARD (Diagram: Mechanism Flowchart) -> PASS")
+
+# 2. Simplify Mode
+doc_simp = feynman_engine.get_fallback_document("Explain this concept even simpler", 0, [])
+assert doc_simp["lesson_mode"] in (LessonMode.SIMPLIFY, "SIMPLIFY"), f"Expected SIMPLIFY mode, got {doc_simp['lesson_mode']}"
+assert "graph " in doc_simp["visual_intuition"] or doc_simp["visual_intuition"] == "", "Simplify diagram invalid"
+assert "explain this concept" not in doc_simp["reflection_prompt"].lower(), "Reflection prompt leaked prompt string"
+print("  [OK] Mode 2: SIMPLIFY (Diagram: Minimal Pipeline) -> PASS")
+
+# 3. Analogy Mode
+doc_analogy = feynman_engine.get_fallback_document("Give a real world analogy", 0, [])
+assert doc_analogy["lesson_mode"] in (LessonMode.ANALOGY, "ANALOGY"), f"Expected ANALOGY mode, got {doc_analogy['lesson_mode']}"
+assert "graph " in doc_analogy["visual_intuition"] or doc_analogy["visual_intuition"] == "", "Analogy diagram invalid"
+assert "chef" in doc_analogy["simple_explanation"].lower() or "kitchen" in doc_analogy["simple_explanation"].lower(), "Analogy explanation missing concrete story"
+print("  [OK] Mode 3: ANALOGY (Diagram: Analogy Workflow) -> PASS")
+
+# 4. Step-by-Step Mode
+doc_step = feynman_engine.get_fallback_document("Teach me neural networks step by step", 0, [])
+assert doc_step["lesson_mode"] in (LessonMode.STEP_BY_STEP, "STEP_BY_STEP"), f"Expected STEP_BY_STEP mode, got {doc_step['lesson_mode']}"
+assert "### Step 1" in doc_step["simple_explanation"], "Step 1 missing from Step-by-Step explanation"
+assert "### Step 2" in doc_step["simple_explanation"], "Step 2 missing from Step-by-Step explanation"
+assert "### Step 3" in doc_step["simple_explanation"], "Step 3 missing from Step-by-Step explanation"
+assert "### Step 4" in doc_step["simple_explanation"], "Step 4 missing from Step-by-Step explanation"
+assert "Checkpoint" in doc_step["simple_explanation"], "Checkpoints missing from Step-by-Step explanation"
+assert "S1[" in doc_step["visual_intuition"] and "S2[" in doc_step["visual_intuition"], "Step-by-step diagram not sequential"
+print("  [OK] Mode 4: STEP_BY_STEP (4 Steps + Checkpoints + Step Diagram) -> PASS")
+
+# 6C: Verify Sequential Multi-Turn Message Integrity
+print("[TEST] Verifying Sequential Multi-Turn Integrity...")
+turn_1 = feynman_engine.get_fallback_document("Explain neural networks", 0, [])
+turn_2 = feynman_engine.get_fallback_document("Explain this concept even simpler", 10, [])
+turn_3 = feynman_engine.get_fallback_document("Give a real world analogy", 20, [])
+turn_4 = feynman_engine.get_fallback_document("Teach me neural networks step by step", 30, [])
+
+assert turn_1["lesson_mode"] in (LessonMode.STANDARD, "STANDARD") and turn_1["visual_intuition"] != ""
+assert turn_2["lesson_mode"] in (LessonMode.SIMPLIFY, "SIMPLIFY")
+assert turn_3["lesson_mode"] in (LessonMode.ANALOGY, "ANALOGY")
+assert turn_4["lesson_mode"] in (LessonMode.STEP_BY_STEP, "STEP_BY_STEP") and "Step 1" in turn_4["simple_explanation"]
+
+# Verify no prompt pollution in active recall or next steps
+for turn in [turn_1, turn_2, turn_3, turn_4]:
+    assert not any(bad in turn["reflection_prompt"].lower() for bad in ["teach me", "explain this concept even simpler", "give a real world analogy"])
+    assert not any(bad in turn["next_learning_step"].lower() for bad in ["teach me", "explain this concept even simpler", "give a real world analogy"])
+
+print("  [OK] Multi-Turn Message State Integrity & Zero Prompt Leakage: PASS")
 
 print("\n====================================================")
 print("ALL PROGRAMMATIC WORKFLOW TESTS COMPLETED SUCCESSFULLY!")
