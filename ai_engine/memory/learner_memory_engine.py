@@ -26,6 +26,11 @@ from database import (
 # ----------------------------------------------------
 
 FOUNDATIONAL_KNOWLEDGE_NODES = [
+    # ─── Computer Science ───────────────────────────────────────────
+    {"canonical_topic": "Variables", "category": "Computer Science", "description": "Named storage containers for values in programs", "difficulty_tier": 1},
+    {"canonical_topic": "Conditionals", "category": "Computer Science", "description": "If/else branching logic based on boolean conditions", "difficulty_tier": 1},
+    {"canonical_topic": "Loops", "category": "Computer Science", "description": "Repeated execution of a code block while a condition holds", "difficulty_tier": 1},
+    {"canonical_topic": "Functions", "category": "Computer Science", "description": "Reusable named blocks of code that accept parameters", "difficulty_tier": 1},
     {"canonical_topic": "Recursion", "category": "Computer Science", "description": "Functions calling themselves with base cases", "difficulty_tier": 2},
     {"canonical_topic": "Call Stack", "category": "Computer Science", "description": "Memory structure tracking active execution frames", "difficulty_tier": 1},
     {"canonical_topic": "Base Case", "category": "Computer Science", "description": "Terminating condition that stops recursive calls", "difficulty_tier": 1},
@@ -36,21 +41,85 @@ FOUNDATIONAL_KNOWLEDGE_NODES = [
     {"canonical_topic": "Gradient Descent", "category": "Optimization", "description": "First-order iterative optimization algorithm", "difficulty_tier": 2},
     {"canonical_topic": "Activation Function", "category": "Artificial Intelligence", "description": "Non-linear transformations applied to neuron outputs", "difficulty_tier": 2},
     {"canonical_topic": "Loss Function", "category": "Machine Learning", "description": "Scalar penalty quantifying prediction error", "difficulty_tier": 1},
+
+    # ─── Mathematics ────────────────────────────────────────────────
+    {"canonical_topic": "Arithmetic", "category": "Mathematics", "description": "Basic operations: addition, subtraction, multiplication, division", "difficulty_tier": 1},
+    {"canonical_topic": "Algebra", "category": "Mathematics", "description": "Symbolic manipulation of expressions and equations", "difficulty_tier": 1},
+    {"canonical_topic": "Functions (Math)", "category": "Mathematics", "description": "Mappings from inputs to outputs: f(x) = ...", "difficulty_tier": 1},
+    {"canonical_topic": "Limits", "category": "Mathematics", "description": "Value a function approaches as input nears a point", "difficulty_tier": 2},
+    {"canonical_topic": "Derivatives", "category": "Mathematics", "description": "Instantaneous rate of change of a function", "difficulty_tier": 2},
+    {"canonical_topic": "Integrals", "category": "Mathematics", "description": "Accumulated area under a curve", "difficulty_tier": 2},
+    {"canonical_topic": "Differential Equations", "category": "Mathematics", "description": "Equations relating a function to its derivatives", "difficulty_tier": 3},
     {"canonical_topic": "Linear Algebra", "category": "Mathematics", "description": "Vectors, matrices, linear transformations, and dot products", "difficulty_tier": 1},
-    {"canonical_topic": "Calculus", "category": "Mathematics", "description": "Derivatives, integrals, and rate of change", "difficulty_tier": 1}
+    {"canonical_topic": "Probability", "category": "Mathematics", "description": "Mathematical study of randomness and likelihood", "difficulty_tier": 2},
+    {"canonical_topic": "Statistics", "category": "Mathematics", "description": "Collection, analysis, and interpretation of data", "difficulty_tier": 2},
+    {"canonical_topic": "Calculus", "category": "Mathematics", "description": "Derivatives, integrals, and rate of change", "difficulty_tier": 1},
+
+    # ─── Physics ────────────────────────────────────────────────────
+    {"canonical_topic": "Units & Measurement", "category": "Physics", "description": "SI units, dimensional analysis, and scientific notation", "difficulty_tier": 1},
+    {"canonical_topic": "Kinematics", "category": "Physics", "description": "Description of motion: position, velocity, acceleration", "difficulty_tier": 1},
+    {"canonical_topic": "Newton's Laws", "category": "Physics", "description": "The three fundamental laws of motion and force", "difficulty_tier": 2},
+    {"canonical_topic": "Work & Energy", "category": "Physics", "description": "Mechanical work, kinetic and potential energy, conservation", "difficulty_tier": 2},
+    {"canonical_topic": "Momentum", "category": "Physics", "description": "Mass times velocity; conservation in collisions", "difficulty_tier": 2},
+    {"canonical_topic": "Waves", "category": "Physics", "description": "Oscillatory disturbances propagating through media", "difficulty_tier": 2},
+    {"canonical_topic": "Thermodynamics", "category": "Physics", "description": "Heat, temperature, and the laws governing energy transfer", "difficulty_tier": 2},
+    {"canonical_topic": "Electricity", "category": "Physics", "description": "Electric charge, current, voltage, and resistance", "difficulty_tier": 2},
+    {"canonical_topic": "Magnetism", "category": "Physics", "description": "Magnetic fields, forces, and electromagnetic induction", "difficulty_tier": 2},
+    {"canonical_topic": "Quantum Mechanics", "category": "Physics", "description": "Probabilistic description of matter at atomic/subatomic scales", "difficulty_tier": 3},
 ]
 
 FOUNDATIONAL_KNOWLEDGE_EDGES = [
+    # ─── Computer Science internal edges ────────────────────────────
+    {"source_topic": "Variables", "target_topic": "Conditionals", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Variables", "target_topic": "Loops", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Conditionals", "target_topic": "Functions", "relationship_type": "PREREQUISITE_OF", "weight": 0.8},
+    {"source_topic": "Loops", "target_topic": "Functions", "relationship_type": "PREREQUISITE_OF", "weight": 0.8},
     {"source_topic": "Base Case", "target_topic": "Recursion", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
     {"source_topic": "Call Stack", "target_topic": "Recursion", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Functions", "target_topic": "Recursion", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
     {"source_topic": "Big-O Notation", "target_topic": "Binary Search", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
     {"source_topic": "Linear Algebra", "target_topic": "Neural Networks", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
     {"source_topic": "Activation Function", "target_topic": "Neural Networks", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
     {"source_topic": "Loss Function", "target_topic": "Gradient Descent", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
     {"source_topic": "Calculus", "target_topic": "Backpropagation", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
     {"source_topic": "Gradient Descent", "target_topic": "Backpropagation", "relationship_type": "RELATED_TO", "weight": 1.0},
-    {"source_topic": "Neural Networks", "target_topic": "Backpropagation", "relationship_type": "PREREQUISITE_OF", "weight": 1.0}
+    {"source_topic": "Neural Networks", "target_topic": "Backpropagation", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+
+    # ─── Mathematics internal edges ──────────────────────────────────
+    {"source_topic": "Arithmetic", "target_topic": "Algebra", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Algebra", "target_topic": "Functions (Math)", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Functions (Math)", "target_topic": "Limits", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Limits", "target_topic": "Derivatives", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Derivatives", "target_topic": "Integrals", "relationship_type": "RELATED_TO", "weight": 1.0},
+    {"source_topic": "Derivatives", "target_topic": "Differential Equations", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Integrals", "target_topic": "Differential Equations", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Algebra", "target_topic": "Linear Algebra", "relationship_type": "PREREQUISITE_OF", "weight": 0.8},
+    {"source_topic": "Arithmetic", "target_topic": "Probability", "relationship_type": "PREREQUISITE_OF", "weight": 0.8},
+    {"source_topic": "Probability", "target_topic": "Statistics", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Derivatives", "target_topic": "Calculus", "relationship_type": "SUBTOPIC_OF", "weight": 1.0},
+    {"source_topic": "Integrals", "target_topic": "Calculus", "relationship_type": "SUBTOPIC_OF", "weight": 1.0},
+
+    # ─── Physics internal edges ──────────────────────────────────────
+    {"source_topic": "Units & Measurement", "target_topic": "Kinematics", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Kinematics", "target_topic": "Newton's Laws", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Newton's Laws", "target_topic": "Work & Energy", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Newton's Laws", "target_topic": "Momentum", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Work & Energy", "target_topic": "Thermodynamics", "relationship_type": "RELATED_TO", "weight": 0.7},
+    {"source_topic": "Electricity", "target_topic": "Magnetism", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
+    {"source_topic": "Quantum Mechanics", "target_topic": "Quantum Mechanics", "relationship_type": "RELATED_TO", "weight": 0.1},  # self-ref placeholder avoided below
+
+    # ─── Cross-subject prerequisite edges ───────────────────────────
+    # Physics uses Calculus (Kinematics → Derivatives; force = ma → Newton's Laws need Derivatives)
+    {"source_topic": "Derivatives", "target_topic": "Kinematics", "relationship_type": "PREREQUISITE_OF", "weight": 0.9},
+    {"source_topic": "Derivatives", "target_topic": "Newton's Laws", "relationship_type": "RELATED_TO", "weight": 0.8},
+    {"source_topic": "Integrals", "target_topic": "Work & Energy", "relationship_type": "RELATED_TO", "weight": 0.7},
+    # Linear Algebra underpins ML which is CS
+    {"source_topic": "Linear Algebra", "target_topic": "Backpropagation", "relationship_type": "PREREQUISITE_OF", "weight": 0.9},
+    # Probability underpins ML/AI
+    {"source_topic": "Probability", "target_topic": "Loss Function", "relationship_type": "RELATED_TO", "weight": 0.7},
+    {"source_topic": "Statistics", "target_topic": "Loss Function", "relationship_type": "RELATED_TO", "weight": 0.6},
 ]
+
 
 
 def seed_foundational_knowledge_graph(db: Session):

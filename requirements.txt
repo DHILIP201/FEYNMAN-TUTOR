@@ -13,3 +13,9 @@ passlib[bcrypt]
 bcrypt
 python-multipart
 jinja2
+# Track C dependencies
+alembic
+celery[redis]
+redis
+reportlab
+stripe

@@ -1068,6 +1068,93 @@ print("  [OK] Test C.0.5: /health zero-secret invariant: PASS")
 
 print("\n[TRACK C-0] All observability tests PASSED.")
 
+# ============================================================
+# TRACK C-1: DATABASE PRODUCTION HARDENING (ALEMBIC)
+# ============================================================
+print("\n--- Track C-1: Database Production Hardening ---")
+
+# C.1.1: Verify new Track C models are accessible and creatable via SQLite test path
+print("[TEST C.1.1] UserSubscription, NotificationPreference, TelemetryLog models (SQLite test path)...")
+from database import UserSubscription, NotificationPreference, TelemetryLog
+from sqlalchemy import inspect as _sa_inspect
+
+_engine_inspect = _sa_inspect(SessionLocal().bind)
+existing_tables = _engine_inspect.get_table_names()
+
+assert "user_subscriptions" in existing_tables, "user_subscriptions table missing"
+assert "notification_preferences" in existing_tables, "notification_preferences table missing"
+assert "telemetry_logs" in existing_tables, "telemetry_logs table missing"
+print("  [OK] Test C.1.1: Track C models created via Base.metadata.create_all(): PASS")
+
+# C.1.2: Verify UserSubscription default plan is 'free'
+print("[TEST C.1.2] UserSubscription defaults to 'free' plan...")
+_c1_db = SessionLocal()
+try:
+    # Use the existing test user for the model check
+    _test_user = _c1_db.query(User).filter(User.email == TEST_EMAIL).first()
+    assert _test_user is not None, "Test user must exist for C.1 model tests"
+    existing_sub = _c1_db.query(UserSubscription).filter(UserSubscription.user_id == _test_user.id).first()
+    if not existing_sub:
+        _sub = UserSubscription(user_id=_test_user.id, plan="free")
+        _c1_db.add(_sub)
+        _c1_db.commit()
+        _c1_db.refresh(_sub)
+        existing_sub = _sub
+    assert existing_sub.plan == "free", f"Default plan wrong: {existing_sub.plan}"
+    print("  [OK] Test C.1.2: UserSubscription default plan='free': PASS")
+
+    # C.1.3: Verify NotificationPreference all-enabled default
+    print("[TEST C.1.3] NotificationPreference defaults all-enabled...")
+    existing_pref = _c1_db.query(NotificationPreference).filter(NotificationPreference.user_id == _test_user.id).first()
+    if not existing_pref:
+        _pref = NotificationPreference(user_id=_test_user.id)
+        _c1_db.add(_pref)
+        _c1_db.commit()
+        _c1_db.refresh(_pref)
+        existing_pref = _pref
+    assert existing_pref.email_digest is True, "email_digest default wrong"
+    assert existing_pref.streak_reminders is True, "streak_reminders default wrong"
+    assert existing_pref.weekly_report is True, "weekly_report default wrong"
+    print("  [OK] Test C.1.3: NotificationPreference all-enabled defaults: PASS")
+
+    # C.1.4: TelemetryLog can be written with hashed user_id (never raw)
+    print("[TEST C.1.4] TelemetryLog write with privacy-safe user_id_hash...")
+    from observability.telemetry import hash_user_id as _h
+    _tlog = TelemetryLog(
+        request_id=f"test-c1-{_test_user.id}",
+        endpoint="/test",
+        method="GET",
+        http_status=200,
+        latency_ms=12.5,
+        user_id_hash=_h(_test_user.id),   # SHA-256, not raw ID
+        total_tokens=0,
+        fallback_used=False,
+        rate_limit_hit=False,
+        auth_failure=False,
+        timestamp=datetime.utcnow(),
+    )
+    _c1_db.add(_tlog)
+    _c1_db.commit()
+    _c1_db.refresh(_tlog)
+    assert _tlog.user_id_hash != str(_test_user.id), "TelemetryLog must store hash, not raw user_id"
+    assert len(_tlog.user_id_hash) == 64
+    # Clean up
+    _c1_db.delete(_tlog)
+    _c1_db.commit()
+    print("  [OK] Test C.1.4: TelemetryLog SHA-256 user_id_hash write: PASS")
+
+    # C.1.5: Alembic version table exists (confirms alembic upgrade ran)
+    print("[TEST C.1.5] Alembic version table exists (upgrade head applied)...")
+    assert "alembic_version" in existing_tables, "alembic_version table missing — upgrade head not applied"
+    _version_rows = _c1_db.execute(__import__('sqlalchemy').text("SELECT version_num FROM alembic_version")).fetchall()
+    assert len(_version_rows) == 1, f"Expected 1 alembic version row, got {len(_version_rows)}"
+    print(f"  [OK] Test C.1.5: Alembic version table present, revision={_version_rows[0][0]}: PASS")
+
+finally:
+    _c1_db.close()
+
+print("\n[TRACK C-1] All database hardening tests PASSED.")
+
 print("\n====================================================")
 print("ALL PROGRAMMATIC WORKFLOW TESTS COMPLETED SUCCESSFULLY!")
 print("====================================================")

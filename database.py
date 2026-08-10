@@ -154,6 +154,67 @@ class LearningEvent(Base):
 
     user = relationship("User", back_populates="learning_events")
 
+# ----------------------------------------------------
+# TRACK C: PRODUCTION PLATFORM MODELS
+# ----------------------------------------------------
+
+class UserSubscription(Base):
+    """Tracks the billing plan for each user (free / pro)."""
+    __tablename__ = "user_subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, index=True, nullable=False)
+    plan = Column(String, default="free", nullable=False)  # "free" | "pro"
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)           # null = perpetual
+    stripe_customer_id = Column(String, nullable=True)
+    stripe_subscription_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class NotificationPreference(Base):
+    """User opt-in/out controls for background email notifications."""
+    __tablename__ = "notification_preferences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, index=True, nullable=False)
+    email_digest = Column(Boolean, default=True, nullable=False)       # Daily spaced-repetition digest
+    streak_reminders = Column(Boolean, default=True, nullable=False)   # Streak preservation alerts
+    weekly_report = Column(Boolean, default=True, nullable=False)      # Sunday progress report
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class TelemetryLog(Base):
+    """
+    Optional DB persistence of per-request telemetry events for the admin dashboard.
+    Primary telemetry output is always stdout (log aggregator). This table enables
+    SQL-based analytics (DAU, error rates, token consumption) without external tooling.
+    """
+    __tablename__ = "telemetry_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(String, unique=True, index=True, nullable=False)
+    endpoint = Column(String, index=True, nullable=False)
+    method = Column(String, nullable=False)
+    http_status = Column(Integer, index=True, nullable=False)
+    latency_ms = Column(Float, nullable=False)
+    user_id_hash = Column(String, nullable=True)   # SHA-256 of user_id, never raw
+    model = Column(String, nullable=True)
+    key_slot = Column(Integer, nullable=True)
+    prompt_tokens = Column(Integer, default=0, nullable=False)
+    output_tokens = Column(Integer, default=0, nullable=False)
+    total_tokens = Column(Integer, default=0, nullable=False)
+    fallback_used = Column(Boolean, default=False, nullable=False)
+    rate_limit_hit = Column(Boolean, default=False, nullable=False)
+    auth_failure = Column(Boolean, default=False, nullable=False)
+    timestamp = Column(DateTime, index=True, nullable=False)
+
 # Create tables
 def init_db():
     Base.metadata.create_all(bind=engine)
