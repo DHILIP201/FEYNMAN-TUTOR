@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 
 # Import our custom modules
 from database import init_db, SessionLocal, get_db, User, ChatSession, ChatMessage, PasswordResetOTP
-from ai_engine import feynman_engine, gemini_gateway
+from ai_engine import feynman_engine, gemini_gateway, rate_limiter, RateLimitTier
 from security import (
     get_password_hash, 
     verify_password, 
@@ -70,6 +70,17 @@ TUTOR_SCHEMA = {
 }
 
 app = FastAPI(title="Feynman AI Tutor API")
+
+# Security Headers & Abuse Protection Middleware
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -863,6 +874,32 @@ async def tutor_chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Tiered Sliding-Window Rate Limiting & Daily AI Budgeting
+    user_tier = RateLimitTier.GUEST if current_user.email == "guest@feynmantutor.local" else RateLimitTier.FREE
+    user_id_str = f"user_{current_user.id}"
+
+    # 1. Check Requests-Per-Minute Rate Limit
+    is_allowed, rl_info = rate_limiter.check_rate_limit(user_id_str, tier=user_tier)
+    if not is_allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded for {user_tier} tier ({rl_info['limit']} req/min). Please wait {rl_info['retry_after']}s before sending another message.",
+            headers={
+                "Retry-After": str(rl_info["retry_after"]),
+                "X-RateLimit-Limit": str(rl_info["limit"]),
+                "X-RateLimit-Remaining": "0"
+            }
+        )
+
+    # 2. Check Daily Token & Query Budget
+    budget_allowed, budget_info = rate_limiter.check_budget(user_id_str, estimated_tokens=600, tier=user_tier)
+    if not budget_allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily AI study budget reached for {user_tier} tier ({budget_info['daily_requests_used']}/{budget_info['daily_requests_limit']} daily requests). Resets at midnight UTC.",
+            headers={"X-TokenBudget-Remaining": "0"}
+        )
+
     # Ensure session exists and belongs to the user
     session = db.query(ChatSession).filter(ChatSession.id == request.session_id, ChatSession.user_id == current_user.id).first()
     if not session:

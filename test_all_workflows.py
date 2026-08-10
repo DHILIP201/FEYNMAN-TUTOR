@@ -420,6 +420,79 @@ for s in pool_status:
     assert "slot_id" in s and "status" in s
 print("  [OK] Test 7.8: Zero Secret Leakage in Telemetry & Logs: PASS")
 
+# ----------------------------------------------------
+# 8. RATE LIMITING, AI BUDGET & SECURITY HEADERS
+# ----------------------------------------------------
+print("\n--- 8. Testing Rate Limiting, Token Budget & Security Headers ---")
+
+from ai_engine.rate_limiter import RateLimiter, RateLimitTier, InMemoryRateLimitStorage, rate_limiter
+from security import create_access_token
+
+# 8.1: Tiered Rate Limiting sliding window check
+print("[TEST 8.1] Verifying Tiered Rate Limiting...")
+custom_storage = InMemoryRateLimitStorage()
+limiter = RateLimiter(storage=custom_storage)
+
+# Guest RPM limit is 10
+guest_id = "test_guest_123"
+for i in range(10):
+    allowed, info = limiter.check_rate_limit(guest_id, tier=RateLimitTier.GUEST)
+    assert allowed is True, f"Request {i+1} should be allowed"
+
+# 11th request must be blocked
+allowed, info = limiter.check_rate_limit(guest_id, tier=RateLimitTier.GUEST)
+assert allowed is False, "11th guest request should be blocked"
+assert info["remaining"] == 0
+assert info["retry_after"] > 0
+print("  [OK] Test 8.1: Sliding-Window Tiered Rate Limiter (10 RPM Guest Cap): PASS")
+
+# 8.2: Daily AI Query and Token Budget check
+print("[TEST 8.2] Verifying Daily Token & Query Budget...")
+budget_user = "test_budget_user"
+# Free user limit is 150 daily requests
+for i in range(150):
+    allowed, b_info = limiter.check_budget(budget_user, estimated_tokens=100, tier=RateLimitTier.FREE)
+    assert allowed is True
+
+# 151st request must exceed daily budget
+allowed, b_info = limiter.check_budget(budget_user, estimated_tokens=100, tier=RateLimitTier.FREE)
+assert allowed is False, "Request exceeding daily limit was not blocked"
+assert b_info["daily_requests_remaining"] == 0
+print("  [OK] Test 8.2: Daily AI Query & Token Budget Enforcement: PASS")
+
+# 8.3: HTTP 429 & Retry-After response verification via TestClient
+print("[TEST 8.3] Verifying HTTP 429 Endpoint Behavior...")
+# Simulate rate limit hit on chat
+rl_user_id = f"user_{guest_user.id}"
+for _ in range(15):
+    rate_limiter.check_rate_limit(rl_user_id, tier=RateLimitTier.GUEST)
+
+# Send request as guest user who exceeded rate limit
+r_blocked = client.post(
+    "/tutor-chat/",
+    json={
+        "session_id": TEST_SESSION_ID,
+        "user_message": "Rate limit test message",
+        "image_base64": None,
+        "image_mime": None
+    },
+    headers={"Authorization": f"Bearer {create_access_token({'sub': 'guest@feynmantutor.local'})}"}
+)
+assert r_blocked.status_code == 429, f"Expected 429 status code, got {r_blocked.status_code}"
+assert "Rate limit exceeded" in r_blocked.json()["detail"]
+assert "Retry-After" in r_blocked.headers or "retry-after" in r_blocked.headers
+print("  [OK] Test 8.3: Endpoint HTTP 429 + Retry-After Headers: PASS")
+
+# 8.4: Security Headers Middleware Verification
+print("[TEST 8.4] Verifying Enterprise Security Headers...")
+r_root = client.get("/")
+assert r_root.status_code == 200
+assert r_root.headers.get("X-Content-Type-Options") == "nosniff", "Missing X-Content-Type-Options"
+assert r_root.headers.get("X-Frame-Options") == "SAMEORIGIN", "Missing X-Frame-Options"
+assert r_root.headers.get("X-XSS-Protection") == "1; mode=block", "Missing X-XSS-Protection"
+assert r_root.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin", "Missing Referrer-Policy"
+print("  [OK] Test 8.4: Security Headers (nosniff, SAMEORIGIN, XSS-Protection, Referrer-Policy): PASS")
+
 print("\n====================================================")
 print("ALL PROGRAMMATIC WORKFLOW TESTS COMPLETED SUCCESSFULLY!")
 print("====================================================")

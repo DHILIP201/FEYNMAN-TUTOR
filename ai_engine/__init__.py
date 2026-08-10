@@ -10,6 +10,7 @@ from .providers.provider_factory import ProviderFactory
 from .response_validator import ResponseValidator
 from .prompt_builder import PromptBuilder
 from .gemini_gateway import GeminiGateway, GeminiKeyPool, gemini_gateway
+from .rate_limiter import RateLimiter, RateLimitTier, rate_limiter
 
 __all__ = [
     "FeynmanCognitiveEngine",
@@ -23,5 +24,8 @@ __all__ = [
     "PromptBuilder",
     "GeminiGateway",
     "GeminiKeyPool",
-    "gemini_gateway"
+    "gemini_gateway",
+    "RateLimiter",
+    "RateLimitTier",
+    "rate_limiter"
 ]
