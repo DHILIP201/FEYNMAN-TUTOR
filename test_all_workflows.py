@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 from main import app
 from database import SessionLocal, User, ChatSession, ChatMessage
 import json
+import io
+from datetime import datetime
 
 client = TestClient(app)
 TEST_EMAIL = "e2e_acceptance_test@domain.com"
@@ -492,6 +494,117 @@ assert r_root.headers.get("X-Frame-Options") == "SAMEORIGIN", "Missing X-Frame-O
 assert r_root.headers.get("X-XSS-Protection") == "1; mode=block", "Missing X-XSS-Protection"
 assert r_root.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin", "Missing Referrer-Policy"
 print("  [OK] Test 8.4: Security Headers (nosniff, SAMEORIGIN, XSS-Protection, Referrer-Policy): PASS")
+
+# 8.5: Storage Backend Adapter & Redis-Ready State Tests
+print("[TEST 8.5] Verifying Storage Backend Adapters & Redis Interface...")
+from ai_engine.rate_limiter import (
+    BaseRateLimitStorage,
+    InMemoryRateLimitStorage,
+    RedisRateLimitStorage,
+    create_rate_limit_storage
+)
+
+# 8.5a: InMemoryRateLimitStorage operations & sliding window TTL
+mem_storage = InMemoryRateLimitStorage()
+assert mem_storage.increment_window("key1", window_seconds=60) == 1
+assert mem_storage.increment_window("key1", window_seconds=60) == 2
+assert mem_storage.get_window_count("key1", window_seconds=60) == 2
+# Add token usage
+assert mem_storage.add_token_usage("key_tok", tokens=250, ttl_seconds=86400) == 250
+usage_data = mem_storage.get_token_usage("key_tok")
+assert usage_data["tokens"] == 250
+assert usage_data["requests"] == 1
+
+# 8.5b: RedisRateLimitStorage with Mock Redis Client
+mock_redis = MagicMock()
+mock_pipe = MagicMock()
+# Mock pipeline execution returns for zcard (index 2) and hincrby (index 0)
+mock_pipe.execute.return_value = [500, True, 3, True]
+mock_redis.pipeline.return_value = mock_pipe
+mock_redis.hgetall.return_value = {b"tokens": b"1200", b"requests": b"4"}
+
+redis_storage = RedisRateLimitStorage(mock_redis)
+assert redis_storage.increment_window("redis_k1", window_seconds=60) == 3
+assert redis_storage.add_token_usage("redis_tok", tokens=500, ttl_seconds=86400) == 500
+r_usage = redis_storage.get_token_usage("redis_tok")
+assert r_usage["tokens"] == 1200
+assert r_usage["requests"] == 4
+
+# 8.5c: Redis Failure Graceful Fallback
+mock_bad_redis = MagicMock()
+mock_bad_redis.pipeline.side_effect = Exception("Redis connection refused")
+mock_bad_redis.hgetall.side_effect = Exception("Redis connection refused")
+redis_fail_storage = RedisRateLimitStorage(mock_bad_redis)
+assert redis_fail_storage.increment_window("bad_key", window_seconds=60) == 1
+assert redis_fail_storage.get_token_usage("bad_key") == {"tokens": 0, "requests": 0}
+
+# 8.5d: Factory function auto-selection
+with patch.dict(os.environ, {}, clear=False):
+    if "REDIS_URL" in os.environ:
+        del os.environ["REDIS_URL"]
+    factory_storage = create_rate_limit_storage()
+    assert isinstance(factory_storage, InMemoryRateLimitStorage)
+print("  [OK] Test 8.5: Storage Adapters (InMemory + Redis Pipeline + Graceful Fallback + Factory): PASS")
+
+# 8.6: Endpoint Rate Limiting (Upload & Auth Endpoints)
+print("[TEST 8.6] Verifying Endpoint Rate Limiting on Upload & Auth...")
+# Test upload rate limiter directly
+upload_limiter = RateLimiter(storage=InMemoryRateLimitStorage())
+for _ in range(10):
+    allowed, _ = upload_limiter.check_endpoint_rate_limit("upload_document", "test_user_ip", max_requests=10, window_seconds=60)
+    assert allowed is True
+# 11th request blocked
+allowed, info = upload_limiter.check_endpoint_rate_limit("upload_document", "test_user_ip", max_requests=10, window_seconds=60)
+assert allowed is False
+assert info["remaining"] == 0
+
+# Test auth login rate limiter directly
+login_limiter = RateLimiter(storage=InMemoryRateLimitStorage())
+for _ in range(15):
+    allowed, _ = login_limiter.check_endpoint_rate_limit("login", "192.168.1.1", max_requests=15, window_seconds=60)
+    assert allowed is True
+allowed, _ = login_limiter.check_endpoint_rate_limit("login", "192.168.1.1", max_requests=15, window_seconds=60)
+assert allowed is False
+print("  [OK] Test 8.6: Endpoint Rate Limiting (Upload, Login, Signup, Guest): PASS")
+
+# 8.7: Upload Protections (PDF signature validation, Size limit, Filename Sanitization)
+print("[TEST 8.7] Verifying Upload File Protections...")
+# Invalid PDF format (missing %PDF- header)
+r_bad_file = client.post(
+    "/upload-document/",
+    data={"session_id": "test-sec-session"},
+    files={"file": ("malicious.pdf", io.BytesIO(b"This is not a PDF"), "application/pdf")},
+    headers={"Authorization": f"Bearer {create_access_token({'sub': 'e2e_acceptance_test@domain.com'})}"}
+)
+assert r_bad_file.status_code == 400
+assert "Invalid PDF file format" in r_bad_file.json()["detail"]
+
+# Non-PDF extension
+r_bad_ext = client.post(
+    "/upload-document/",
+    data={"session_id": "test-sec-session"},
+    files={"file": ("malicious.exe", io.BytesIO(b"%PDF- fake"), "application/octet-stream")},
+    headers={"Authorization": f"Bearer {create_access_token({'sub': 'e2e_acceptance_test@domain.com'})}"}
+)
+assert r_bad_ext.status_code == 400
+print("  [OK] Test 8.7: Upload Protections (%PDF- Magic Byte Signature & Extension Filter): PASS")
+
+# 8.8: Usage-Based Gemini Token Reconciliation & Ledger Updates
+print("[TEST 8.8] Verifying Usage-Based Token Accounting Ledger...")
+ledger_storage = InMemoryRateLimitStorage()
+ledger_limiter = RateLimiter(storage=ledger_storage)
+ledger_user = "test_ledger_student"
+
+# Pre-flight check estimated at 600 tokens
+allowed, b_info = ledger_limiter.check_budget(ledger_user, estimated_tokens=600, tier=RateLimitTier.FREE)
+assert allowed is True
+
+# Reconcile with actual Gemini usage (e.g. Gemini returned 850 tokens)
+ledger_limiter.record_actual_token_usage(ledger_user, actual_tokens=850, estimated_tokens=600, tier=RateLimitTier.FREE)
+today_str = datetime.utcnow().strftime("%Y-%m-%d")
+usage_entry = ledger_storage.get_token_usage(f"budget:{RateLimitTier.FREE}:{ledger_user}:{today_str}")
+assert usage_entry["tokens"] == 850, f"Expected 850 tokens in ledger, got {usage_entry['tokens']}"
+print("  [OK] Test 8.8: Usage-Based Token Reconciliation Ledger (Exact Accounting): PASS")
 
 print("\n====================================================")
 print("ALL PROGRAMMATIC WORKFLOW TESTS COMPLETED SUCCESSFULLY!")

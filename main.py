@@ -80,6 +80,8 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 app.add_middleware(
@@ -258,7 +260,17 @@ def send_verification_email(to_email: str, name: str, token: str):
 
 # --- AUTH ENDPOINTS ---
 @app.post("/auth/signup/")
-async def signup(user_data: UserSignup, db: Session = Depends(get_db)):
+async def signup(user_data: UserSignup, request: Request, db: Session = Depends(get_db)):
+    # Rate Limit Signups (10 per minute per IP)
+    client_ip = request.client.host if request.client else "unknown"
+    is_allowed, rl_info = rate_limiter.check_endpoint_rate_limit("signup", client_ip, max_requests=10, window_seconds=60)
+    if not is_allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many registration requests. Please wait {rl_info['retry_after']}s before trying again.",
+            headers={"Retry-After": str(rl_info["retry_after"])}
+        )
+
     # Validate Email Format
     if not validate_email_format(user_data.email):
         raise HTTPException(
@@ -384,8 +396,19 @@ def resend_verification(request: ResendVerificationRequest, db: Session = Depend
     return {"message": "Verification email resent successfully."}
 
 @app.post("/auth/login/")
-async def login(credentials: UserLogin, db: Session = Depends(get_db)):
+async def login(credentials: UserLogin, request: Request, db: Session = Depends(get_db)):
     clean_email = credentials.email.strip().lower()
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Anti-Brute-Force Rate Limit (15 attempts / minute per IP)
+    is_allowed, rl_info = rate_limiter.check_endpoint_rate_limit("login", client_ip, max_requests=15, window_seconds=60)
+    if not is_allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many login attempts. Please wait {rl_info['retry_after']}s before trying again.",
+            headers={"Retry-After": str(rl_info["retry_after"])}
+        )
+
     user = db.query(User).filter(User.email == clean_email).first()
     if not user:
         print(f"[AUTH LOGIN FAIL] User not found: {clean_email}")
@@ -429,7 +452,16 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     }
 
 @app.post("/auth/guest/")
-async def guest_login(db: Session = Depends(get_db)):
+async def guest_login(request: Request, db: Session = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    is_allowed, rl_info = rate_limiter.check_endpoint_rate_limit("guest_login", client_ip, max_requests=20, window_seconds=60)
+    if not is_allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many guest sessions requested. Please wait {rl_info['retry_after']}s before trying again.",
+            headers={"Retry-After": str(rl_info["retry_after"])}
+        )
+
     # Retrieve Guest user
     guest = db.query(User).filter(User.email == "guest@feynmantutor.local").first()
     if not guest:
@@ -477,7 +509,17 @@ async def resend_verification(req: ResendVerificationRequest, db: Session = Depe
     }
 
 @app.post("/auth/forgot-password/")
-async def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+async def forgot_password(req: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    # Rate Limit Password Reset (5 requests / 5 min)
+    is_allowed, rl_info = rate_limiter.check_endpoint_rate_limit("forgot_password", f"{client_ip}:{req.email}", max_requests=5, window_seconds=300)
+    if not is_allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many password reset requests. Please wait {rl_info['retry_after']}s before trying again.",
+            headers={"Retry-After": str(rl_info["retry_after"])}
+        )
+
     user = db.query(User).filter(User.email == req.email).first()
     if not user:
         # Anti-enumeration response format
@@ -515,7 +557,16 @@ async def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_
     }
 
 @app.post("/auth/verify-otp/")
-async def verify_otp(req: VerifyOTPRequest, db: Session = Depends(get_db)):
+async def verify_otp(req: VerifyOTPRequest, request: Request, db: Session = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    # Rate Limit OTP Verification (10 attempts / 5 min)
+    is_allowed, rl_info = rate_limiter.check_endpoint_rate_limit("verify_otp", f"{client_ip}:{req.email}", max_requests=10, window_seconds=300)
+    if not is_allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many verification attempts. Please wait {rl_info['retry_after']}s before trying again.",
+            headers={"Retry-After": str(rl_info["retry_after"])}
+        )
     reset_entry = db.query(PasswordResetOTP).filter(
         PasswordResetOTP.email == req.email,
         PasswordResetOTP.is_used == False
@@ -791,7 +842,20 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if not file.filename.endswith('.pdf'):
+    # 1. Rate Limit Uploads (10 uploads / minute per user)
+    user_id_str = f"user_{current_user.id}"
+    is_allowed, rl_info = rate_limiter.check_endpoint_rate_limit("upload_document", user_id_str, max_requests=10, window_seconds=60)
+    if not is_allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Upload rate limit exceeded. Please wait {rl_info['retry_after']}s before uploading another document.",
+            headers={"Retry-After": str(rl_info["retry_after"])}
+        )
+
+    # 2. Filename & Path Sanitization
+    import os
+    safe_filename = os.path.basename(file.filename or "document.pdf").replace("\x00", "")
+    if not safe_filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     
     # Check if session exists or create it
@@ -800,18 +864,27 @@ async def upload_document(
         session = ChatSession(
             id=session_id,
             user_id=current_user.id,
-            title=file.filename,
+            title=safe_filename,
             mastery=0,
             has_doc=True,
             study_mode="Focus"
         )
         db.add(session)
     else:
-        session.title = file.filename
+        session.title = safe_filename
         session.has_doc = True
         
     try:
         contents = await file.read()
+
+        # 3. File Size Validation (Max 15 MB)
+        if len(contents) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File size exceeds maximum allowable limit (15 MB).")
+
+        # 4. MIME Magic Bytes Validation (%PDF-)
+        if not contents.startswith(b"%PDF-"):
+            raise HTTPException(status_code=400, detail="Invalid PDF file format. Missing PDF signature.")
+
         pdf_reader = PdfReader(io.BytesIO(contents))
         pages_data = []
         for idx, page in enumerate(pdf_reader.pages):
@@ -851,6 +924,9 @@ async def upload_document(
             "status": "Indexed successfully",
             "text_preview": pages_data[0]["text"][:200] if pages_data else ""
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
@@ -1128,6 +1204,15 @@ async def tutor_chat(
         )
         db.add(ai_chat_msg)
         db.commit()
+
+        # Record actual Gemini token usage into rate limiter ledger
+        actual_tokens = gemini_gateway.get_last_token_count() or (len(raw_text.split()) * 2 if raw_text else 600)
+        rate_limiter.record_actual_token_usage(
+            user_id_str,
+            actual_tokens=actual_tokens,
+            estimated_tokens=600,
+            tier=user_tier
+        )
 
         return tutor_data
 

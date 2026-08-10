@@ -141,6 +141,10 @@ class GeminiGateway:
         self.max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "3"))
         self.timeout_seconds = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "45"))
         self.backoff_base = float(os.getenv("GEMINI_BACKOFF_BASE_SECONDS", "1.0"))
+        self.last_usage: Dict[str, int] = {}
+
+    def get_last_token_count(self) -> int:
+        return self.last_usage.get("total_tokens", 0)
 
     async def generate(
         self,
@@ -192,10 +196,26 @@ class GeminiGateway:
 
                     latency_ms = int((time.time() - t_start) * 1000)
                     slot.mark_success()
+
+                    # Extract actual token usage metadata if provided by Gemini
+                    prompt_tokens = 0
+                    candidate_tokens = 0
+                    total_tokens = 0
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
+                        prompt_tokens = getattr(response.usage_metadata, "prompt_token_count", 0) or 0
+                        candidate_tokens = getattr(response.usage_metadata, "candidates_token_count", 0) or 0
+                        total_tokens = getattr(response.usage_metadata, "total_token_count", 0) or (prompt_tokens + candidate_tokens)
+                    
+                    self.last_usage = {
+                        "prompt_tokens": prompt_tokens,
+                        "candidate_tokens": candidate_tokens,
+                        "total_tokens": total_tokens
+                    }
+
                     print(
                         f"[GeminiGateway] request_id={req_id} key_slot={slot.slot_id} "
                         f"model={self.model_name} attempt={attempt} status=200 "
-                        f"latency_ms={latency_ms} action=success"
+                        f"latency_ms={latency_ms} tokens={total_tokens} action=success"
                     )
                     if response and hasattr(response, "text") and response.text:
                         return response.text

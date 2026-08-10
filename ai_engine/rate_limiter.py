@@ -199,7 +199,12 @@ class RateLimiter:
         }
         return is_allowed, info
 
-    def check_budget(self, identifier: str, estimated_tokens: int = 500, tier: str = RateLimitTier.FREE) -> Tuple[bool, Dict[str, Any]]:
+    def check_budget(
+        self,
+        identifier: str,
+        estimated_tokens: int = 500,
+        tier: str = RateLimitTier.FREE
+    ) -> Tuple[bool, Dict[str, Any]]:
         """
         Validates daily query and token budgets for the user.
         Returns (is_allowed, budget_metadata).
@@ -231,6 +236,48 @@ class RateLimiter:
             "tier": tier
         }
         return is_allowed, info
+
+    def check_endpoint_rate_limit(
+        self,
+        endpoint_name: str,
+        identifier: str,
+        max_requests: int = 10,
+        window_seconds: int = 60
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Generic endpoint rate limiter (e.g. upload, auth, password reset).
+        Returns (is_allowed, rate_limit_metadata).
+        """
+        key = f"endpoint_limit:{endpoint_name}:{identifier}"
+        current_count = self.storage.increment_window(key, window_seconds=window_seconds)
+        remaining = max(0, max_requests - current_count)
+        is_allowed = current_count <= max_requests
+
+        info = {
+            "limit": max_requests,
+            "remaining": remaining,
+            "reset_seconds": window_seconds,
+            "retry_after": window_seconds if not is_allowed else 0,
+            "endpoint": endpoint_name
+        }
+        return is_allowed, info
+
+    def record_actual_token_usage(
+        self,
+        identifier: str,
+        actual_tokens: int,
+        estimated_tokens: int = 500,
+        tier: str = RateLimitTier.FREE
+    ):
+        """
+        Reconciles actual Gemini usage tokens against the pre-flight estimated tokens.
+        """
+        diff = actual_tokens - estimated_tokens
+        if diff != 0:
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+            key = f"budget:{tier}:{identifier}:{today}"
+            # Add or subtract difference
+            self.storage.add_token_usage(key, diff, ttl_seconds=86400)
 
 
 # Singleton Rate Limiter
