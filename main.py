@@ -59,6 +59,13 @@ from security import (
     hash_token
 )
 from rag import add_document_to_rag, query_rag
+from observability.telemetry import (
+    TelemetryEvent,
+    new_event,
+    get_event,
+    finalize_and_emit,
+    hash_user_id as _hash_uid,
+)
 
 # Load environment variables
 load_dotenv()
@@ -90,6 +97,26 @@ TUTOR_SCHEMA = {
 }
 
 app = FastAPI(title="Feynman AI Tutor API")
+
+# ── C-0: Telemetry Middleware ────────────────────────────────────────────────
+@app.middleware("http")
+async def telemetry_middleware(request: Request, call_next):
+    """Emit a structured JSON telemetry event for every HTTP request.
+
+    Zero-secret invariant: raw user IDs, API keys, and JWT tokens are never
+    written to the log. user_id_hash is SHA-256(user_id) when available.
+    """
+    event = new_event(
+        endpoint=request.url.path,
+        method=request.method,
+    )
+    try:
+        response = await call_next(request)
+        finalize_and_emit(event, response.status_code)
+        return response
+    except Exception as exc:
+        finalize_and_emit(event, 500)
+        raise
 
 # Security Headers & Abuse Protection Middleware
 @app.middleware("http")
@@ -1456,7 +1483,66 @@ async def tutor_chat(
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    """Extended C-0 health check: returns DB + Gemini pool status."""
+    try:
+        db = SessionLocal()
+        db.execute(__import__('sqlalchemy').text("SELECT 1"))
+        db.close()
+        db_status = "ok"
+    except Exception as db_err:
+        db_status = f"error: {type(db_err).__name__}"
+
+    try:
+        total_slots = len(gemini_gateway.key_pool.slots)
+        available_slots = len(gemini_gateway.key_pool.get_available_slots())
+        cooldown_slots = total_slots - available_slots
+    except Exception:
+        total_slots = 0
+        available_slots = 0
+        cooldown_slots = 0
+
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "db": db_status,
+        "gemini_keys": total_slots,
+        "available_keys": available_slots,
+        "cooldown_slots": cooldown_slots,
+        "model": gemini_gateway.model_name,
+    }
+
+
+@app.get("/ready")
+def readiness_check():
+    """
+    C-0 Readiness probe — returns 503 until both the DB and Gemini pool
+    are confirmed operational. Used by Render/load-balancer health checks
+    to prevent traffic from being routed before the app is ready.
+    """
+    errors = []
+
+    # Check DB connectivity
+    try:
+        db = SessionLocal()
+        db.execute(__import__('sqlalchemy').text("SELECT 1"))
+        db.close()
+    except Exception as db_err:
+        errors.append(f"db: {type(db_err).__name__}")
+
+    # Check Gemini pool has at least one healthy key
+    try:
+        available = gemini_gateway.key_pool.get_available_slots()
+        if not available:
+            errors.append("gemini: no healthy key slots")
+    except Exception as gw_err:
+        errors.append(f"gemini: {type(gw_err).__name__}")
+
+    if errors:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "errors": errors, "timestamp": datetime.utcnow().isoformat()},
+        )
+    return {"status": "ready", "timestamp": datetime.utcnow().isoformat()}
 
 if __name__ == "__main__":
     import uvicorn

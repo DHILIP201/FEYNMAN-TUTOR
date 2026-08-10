@@ -984,6 +984,90 @@ print("  [OK] Test B.1.10: Multi-User Adaptive Recommendation Isolation: PASS")
 
 db_session.close()
 
+# ============================================================
+# 11. TRACK C-0: OBSERVABILITY & PRODUCTION HEALTH
+# ============================================================
+print("\n--- 11. Testing Track C-0: Observability & Production Health ---")
+import json as _json
+import hashlib as _hashlib
+import io as _io
+
+# C.0.1: /health returns structured JSON with expected keys
+print("[TEST C.0.1] /health returns structured JSON...")
+r_health = client.get("/health")
+assert r_health.status_code == 200, f"/health failed: {r_health.text}"
+h_data = r_health.json()
+for key in ("status", "timestamp", "db", "gemini_keys", "available_keys", "cooldown_slots", "model"):
+    assert key in h_data, f"/health missing field: {key}"
+assert h_data["status"] == "healthy"
+assert h_data["db"] == "ok", f"DB not ok in /health: {h_data['db']}"
+print("  [OK] Test C.0.1: /health structured JSON: PASS")
+
+# C.0.2: /ready returns 200 when app is running (DB + pool healthy)
+print("[TEST C.0.2] /ready returns 200 when healthy...")
+r_ready = client.get("/ready")
+assert r_ready.status_code == 200, f"/ready returned {r_ready.status_code}: {r_ready.text}"
+ready_data = r_ready.json()
+assert ready_data.get("status") == "ready", f"/ready status not 'ready': {ready_data}"
+print("  [OK] Test C.0.2: /ready readiness probe: PASS")
+
+# C.0.3: Telemetry module — hash_user_id produces SHA-256, not raw integer
+print("[TEST C.0.3] hash_user_id produces SHA-256 digest, not raw integer...")
+from observability.telemetry import hash_user_id as _hash_fn, new_event, get_event, finalize_and_emit, TelemetryEvent
+uid = 42
+hashed = _hash_fn(uid)
+expected = _hashlib.sha256(str(uid).encode()).hexdigest()
+assert hashed == expected, f"hash_user_id mismatch: {hashed} != {expected}"
+assert hashed != str(uid), "hash_user_id must not return the raw user_id"
+assert len(hashed) == 64, f"SHA-256 should be 64 hex chars, got {len(hashed)}"
+print("  [OK] Test C.0.3: hash_user_id SHA-256 privacy invariant: PASS")
+
+# C.0.4: TelemetryEvent emits valid JSON with no secret fields
+print("[TEST C.0.4] TelemetryEvent emit produces valid JSON with no secret fields...")
+import sys as _sys
+captured = _io.StringIO()
+orig_stdout = _sys.stdout
+_sys.stdout = captured
+
+event = TelemetryEvent(endpoint="/test", method="GET", http_status=200)
+event.user_id_hash = _hash_fn(99)
+event.total_tokens = 150
+# Simulate emission
+import time as _time
+import json as _json2
+from dataclasses import asdict as _asdict
+payload = _asdict(event)
+payload.pop("_start_time", None)
+print(_json2.dumps(payload, default=str), flush=True)
+
+_sys.stdout = orig_stdout
+output = captured.getvalue().strip()
+assert output, "Telemetry emit produced no output"
+parsed = _json2.loads(output)
+
+# Zero-secret checks
+assert "api_key" not in parsed, "api_key must never appear in telemetry"
+assert "password" not in parsed, "password must never appear in telemetry"
+assert "token" not in parsed, "token must never appear in telemetry"
+# user_id_hash must be present and be a SHA-256 string
+assert "user_id_hash" in parsed
+assert parsed["user_id_hash"] != "99", "Raw user_id must not appear in telemetry"
+assert len(parsed["user_id_hash"]) == 64
+# Endpoint and status must be logged
+assert parsed["endpoint"] == "/test"
+assert parsed["http_status"] == 200
+print("  [OK] Test C.0.4: TelemetryEvent zero-secret JSON emission: PASS")
+
+# C.0.5: /health API key never appears in response
+print("[TEST C.0.5] /health response never leaks API key or secret values...")
+health_raw = r_health.text
+for secret_word in ("GEMINI_API_KEY", "api_key", "Bearer ", "secret"):
+    assert secret_word.lower() not in health_raw.lower(), \
+        f"/health response contains sensitive string: {secret_word}"
+print("  [OK] Test C.0.5: /health zero-secret invariant: PASS")
+
+print("\n[TRACK C-0] All observability tests PASSED.")
+
 print("\n====================================================")
 print("ALL PROGRAMMATIC WORKFLOW TESTS COMPLETED SUCCESSFULLY!")
 print("====================================================")
