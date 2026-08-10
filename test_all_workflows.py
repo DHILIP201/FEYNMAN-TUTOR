@@ -275,6 +275,151 @@ for turn in [turn_1, turn_2, turn_3, turn_4]:
 
 print("  [OK] Multi-Turn Message State Integrity & Zero Prompt Leakage: PASS")
 
+# ----------------------------------------------------
+# 7. GEMINI API GATEWAY REGRESSION TESTS
+# ----------------------------------------------------
+print("\n--- 7. Testing Gemini API Gateway & Credential Pool ---")
+
+from unittest.mock import MagicMock, patch
+import asyncio
+from ai_engine.gemini_gateway import GeminiGateway, GeminiKeyPool, KeySlotStatus, KeySlot
+
+# 7.1: Key pool initialization
+print("[TEST 7.1] Verifying GeminiKeyPool initialization...")
+test_pool = GeminiKeyPool(["test_key_alpha", "test_key_beta", "test_key_gamma"])
+assert len(test_pool.slots) == 3, f"Expected 3 slots, got {len(test_pool.slots)}"
+for slot in test_pool.slots:
+    assert slot.status == KeySlotStatus.HEALTHY, f"Slot {slot.slot_id} is not healthy: {slot.status}"
+    assert slot.is_available() is True, f"Slot {slot.slot_id} should be available"
+print("  [OK] Test 7.1: Key pool loaded 3 slots with HEALTHY status: PASS")
+
+# 7.2: Primary slot success
+print("[TEST 7.2] Verifying Primary Key generation success...")
+async def run_test_7_2():
+    pool = GeminiKeyPool(["test_key_1", "test_key_2"])
+    gateway = GeminiGateway(key_pool=pool)
+    
+    mock_resp = MagicMock()
+    mock_resp.text = '{"simple_explanation": "Test output", "mastery_score": 10}'
+    
+    with patch.object(pool.slots[0].client.models, "generate_content", return_value=mock_resp):
+        res = await gateway.generate(contents=["test"], system_instruction="system")
+        assert res == mock_resp.text, f"Result mismatch: {res}"
+        assert pool.slots[0].status == KeySlotStatus.HEALTHY
+        assert pool.slots[0].failure_count == 0
+asyncio.run(run_test_7_2())
+print("  [OK] Test 7.2: Primary key generation: PASS")
+
+# 7.3: 429 Rate Limit Failover
+print("[TEST 7.3] Verifying 429 Rate Limit Cooldown & Failover...")
+async def run_test_7_3():
+    pool = GeminiKeyPool(["test_key_1", "test_key_2", "test_key_3"])
+    gateway = GeminiGateway(key_pool=pool)
+    
+    mock_resp_2 = MagicMock()
+    mock_resp_2.text = '{"simple_explanation": "Recovered from Key 2"}'
+    
+    def side_effect_slot1(*args, **kwargs):
+        raise Exception("429 RESOURCE_EXHAUSTED: Quota exceeded for project")
+        
+    with patch.object(pool.slots[0].client.models, "generate_content", side_effect=side_effect_slot1):
+        with patch.object(pool.slots[1].client.models, "generate_content", return_value=mock_resp_2):
+            res = await gateway.generate(contents=["test"], system_instruction="system")
+            assert res == mock_resp_2.text, f"Failed to recover on Key 2: {res}"
+            assert pool.slots[0].status == KeySlotStatus.COOLDOWN, f"Slot 1 should be COOLDOWN, got {pool.slots[0].status}"
+            assert pool.slots[0].cooldown_until > time.time()
+            assert pool.slots[1].status == KeySlotStatus.HEALTHY
+asyncio.run(run_test_7_3())
+print("  [OK] Test 7.3: 429 Rate Limit Slot Failover: PASS")
+
+# 7.4: 503 Service Unavailable Retry & Multi-Key Failover
+print("[TEST 7.4] Verifying 503 Unavailable Retry & Multi-Key Failover...")
+async def run_test_7_4():
+    pool = GeminiKeyPool(["test_key_1", "test_key_2", "test_key_3"])
+    gateway = GeminiGateway(key_pool=pool)
+    gateway.backoff_base = 0.01  # fast test
+    
+    mock_resp_3 = MagicMock()
+    mock_resp_3.text = '{"simple_explanation": "Recovered from Key 3"}'
+    
+    with patch.object(pool.slots[0].client.models, "generate_content", side_effect=Exception("503 UNAVAILABLE")):
+        with patch.object(pool.slots[1].client.models, "generate_content", side_effect=Exception("503 UNAVAILABLE")):
+            with patch.object(pool.slots[2].client.models, "generate_content", return_value=mock_resp_3):
+                res = await gateway.generate(contents=["test"], system_instruction="system")
+                assert res == mock_resp_3.text, f"Failed to recover on Key 3: {res}"
+                assert pool.slots[2].status == KeySlotStatus.HEALTHY
+asyncio.run(run_test_7_4())
+print("  [OK] Test 7.4: 503 Multi-Key Failover: PASS")
+
+# 7.5: Timeout Failover
+print("[TEST 7.5] Verifying Timeout Failover...")
+async def run_test_7_5():
+    pool = GeminiKeyPool(["test_key_1", "test_key_2"])
+    gateway = GeminiGateway(key_pool=pool)
+    gateway.timeout_seconds = 1
+    
+    mock_resp_2 = MagicMock()
+    mock_resp_2.text = '{"simple_explanation": "Recovered after timeout"}'
+    
+    def slow_slot1(*args, **kwargs):
+        time.sleep(2.0)
+        return MagicMock()
+        
+    with patch.object(pool.slots[0].client.models, "generate_content", side_effect=slow_slot1):
+        with patch.object(pool.slots[1].client.models, "generate_content", return_value=mock_resp_2):
+            res = await gateway.generate(contents=["test"], system_instruction="system")
+            assert res == mock_resp_2.text, f"Failed to recover after timeout: {res}"
+asyncio.run(run_test_7_5())
+print("  [OK] Test 7.5: Timeout Failover: PASS")
+
+# 7.6: 401/403 Invalid API Key Quarantine
+print("[TEST 7.6] Verifying 401/403 Credential Quarantine...")
+async def run_test_7_6():
+    pool = GeminiKeyPool(["bad_key", "good_key"])
+    gateway = GeminiGateway(key_pool=pool)
+    
+    mock_resp_2 = MagicMock()
+    mock_resp_2.text = '{"simple_explanation": "Recovered from good key"}'
+    
+    with patch.object(pool.slots[0].client.models, "generate_content", side_effect=Exception("403 API_KEY_INVALID")):
+        with patch.object(pool.slots[1].client.models, "generate_content", return_value=mock_resp_2):
+            res = await gateway.generate(contents=["test"], system_instruction="system")
+            assert res == mock_resp_2.text
+            assert pool.slots[0].status == KeySlotStatus.QUARANTINED
+            assert pool.slots[0].is_available() is False, "Quarantined slot should not be available"
+asyncio.run(run_test_7_6())
+print("  [OK] Test 7.6: Credential Quarantine (No endless retry on 401/403): PASS")
+
+# 7.7: All Keys Exhausted Fallback Integration
+print("[TEST 7.7] Verifying All Keys Exhausted Fallback Document Safety...")
+async def run_test_7_7():
+    pool = GeminiKeyPool(["k1", "k2"])
+    gateway = GeminiGateway(key_pool=pool)
+    gateway.backoff_base = 0.01
+    
+    with patch.object(pool.slots[0].client.models, "generate_content", side_effect=Exception("503 UNAVAILABLE")):
+        with patch.object(pool.slots[1].client.models, "generate_content", side_effect=Exception("429 RESOURCE_EXHAUSTED")):
+            res = await gateway.generate(contents=["test"], system_instruction="system")
+            assert res is None, "Expected None when all keys fail"
+            
+            # Verify existing Feynman fallback takes over seamlessly
+            doc_fallback = feynman_engine.get_fallback_document("Teach me recursion step by step", 10, [])
+            assert doc_fallback["lesson_mode"] in (LessonMode.STEP_BY_STEP, "STEP_BY_STEP")
+            assert "Step 1" in doc_fallback["simple_explanation"]
+            assert "teach me" not in doc_fallback["reflection_prompt"].lower()
+asyncio.run(run_test_7_7())
+print("  [OK] Test 7.7: Controlled Fallback Document Integration: PASS")
+
+# 7.8: Security Check — Zero Secret Leakage in Logs & Telemetry
+print("[TEST 7.8] Verifying Zero Secret Leakage in Telemetry & Pool Status...")
+pool_status = test_pool.get_pool_status()
+for s in pool_status:
+    # Ensure raw API key string is not present in dictionary
+    assert "api_key" not in s
+    assert "key" not in s
+    assert "slot_id" in s and "status" in s
+print("  [OK] Test 7.8: Zero Secret Leakage in Telemetry & Logs: PASS")
+
 print("\n====================================================")
 print("ALL PROGRAMMATIC WORKFLOW TESTS COMPLETED SUCCESSFULLY!")
 print("====================================================")

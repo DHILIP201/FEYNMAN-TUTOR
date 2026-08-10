@@ -7,10 +7,10 @@ from dotenv import load_dotenv
 
 # Load env variables
 load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
+api_key = os.getenv("GEMINI_API_KEY_1") or os.getenv("GEMINI_API_KEY")
 
 # Initialize the google.genai Client for embeddings
-_genai_client = genai.Client(api_key=api_key)
+_genai_client = genai.Client(api_key=api_key) if api_key else None
 
 # Verified available embedding model for this API key.
 # Run: [m.name for m in client.models.list() if 'embed' in m.name]

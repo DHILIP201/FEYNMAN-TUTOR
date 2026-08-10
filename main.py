@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 
 # Import our custom modules
 from database import init_db, SessionLocal, get_db, User, ChatSession, ChatMessage, PasswordResetOTP
-from ai_engine import feynman_engine
+from ai_engine import feynman_engine, gemini_gateway
 from security import (
     get_password_hash, 
     verify_password, 
@@ -42,19 +42,7 @@ from rag import add_document_to_rag, query_rag
 
 # Load environment variables
 load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
-
-if not api_key:
-    print("WARNING: GEMINI_API_KEY not found in .env file!")
-
-# Initialize new google.genai Client (singleton)
-try:
-    gemini_client = genai.Client(api_key=api_key) if api_key else None
-except Exception as e:
-    print(f"WARNING: Failed to init gemini_client on module load: {e}")
-    gemini_client = None
-
-AVAILABLE_CHAT_MODELS = ["gemini-2.5-flash"]
+AVAILABLE_CHAT_MODELS = [os.getenv("GEMINI_MODEL", "gemini-flash-latest")]
 
 # Full JSON schema for structured tutor responses
 TUTOR_SCHEMA = {
@@ -115,9 +103,10 @@ def startup_event():
     print("\n==========================================")
     print("FEYNMAN TUTOR SYSTEM STARTUP LOGS")
     print("==========================================")
-    api_key_env = os.getenv("GEMINI_API_KEY")
-    print(f"API key loaded: {'YES' if api_key_env else 'NO'}")
-    print(f"Selected model: gemini-2.5-flash")
+    slots_count = len(gemini_gateway.key_pool.slots)
+    avail_count = len(gemini_gateway.key_pool.get_available_slots())
+    print(f"Gemini Key Pool: {slots_count} slots configured ({avail_count} active/healthy)")
+    print(f"Selected model: {gemini_gateway.model_name}")
     print(f"AUTH_MODE: {os.getenv('AUTH_MODE', 'development')}")
     print("==========================================\n")
     
@@ -1039,94 +1028,17 @@ async def tutor_chat(
         models_failover = AVAILABLE_CHAT_MODELS
         selected_model = None
         response = None
-        final_err = None
+        # Generate structured response via resilient Gemini API Gateway
+        raw_text = await gemini_gateway.generate(
+            contents=contents,
+            system_instruction=system_prompt,
+            response_schema=TUTOR_SCHEMA,
+            temperature=0.7,
+            request_id=request.session_id[:8]
+        )
 
-        for model_name in models_failover:
-            print(f"[MODEL PIPELINE] Testing model path: {model_name}...")
-            max_retries = 3
-            backoff = 1.5
-            success = False
-            for attempt in range(1, max_retries + 1):
-                try:
-                    # STEP 2: Pre-request Logging
-                    print(f"\n=====================")
-                    print(f"TUTOR REQUEST (Model: {model_name}, Attempt: {attempt}/3)")
-                    print("=====================")
-                    print(f"Session ID: {request.session_id}")
-                    print(f"Question: {user_message}")
-                    print(f"Retrieved Chunks Count: {len(context_chunks)}")
-                    print(f"API Key Loaded: {bool(api_key)}")
-                    print(f"Embedding Model: models/gemini-embedding-001")
-                    print("=====================\n")
-
-                    # Call Gemini model via new SDK — run in thread to avoid blocking event loop
-                    response = await asyncio.to_thread(
-                        gemini_client.models.generate_content,
-                        model=model_name,
-                        contents=contents,
-                        config=genai_types.GenerateContentConfig(
-                            system_instruction=system_prompt,
-                            response_mime_type="application/json",
-                            response_schema=TUTOR_SCHEMA,
-                            temperature=0.7,
-                            max_output_tokens=8192
-                        )
-                    )
-                    elapsed = time.time() - t0
-                    selected_model = model_name
-
-                    # Gather token metrics
-                    prompt_tokens = 0
-                    candidates_tokens = 0
-                    total_tokens = 0
-                    finish_reason = "UNKNOWN"
-                    if hasattr(response, "usage_metadata") and response.usage_metadata:
-                        prompt_tokens = getattr(response.usage_metadata, "prompt_token_count", 0)
-                        candidates_tokens = getattr(response.usage_metadata, "candidates_token_count", 0)
-                        total_tokens = getattr(response.usage_metadata, "total_token_count", 0)
-                    if hasattr(response, "candidates") and response.candidates:
-                        finish_reason = str(response.candidates[0].finish_reason)
-
-                    # STEP 3/5: Post-response Logging
-                    print("\n=====================")
-                    print("GEMINI CALL METRICS")
-                    print("=====================")
-                    print(f"Status: SUCCESS")
-                    print(f"Model Used: {selected_model}")
-                    print(f"Latency: {elapsed:.3f} seconds")
-                    print(f"Prompt Tokens: {prompt_tokens}")
-                    print(f"Candidate Tokens: {candidates_tokens}")
-                    print(f"Total Tokens: {total_tokens}")
-                    print(f"Retry Count: {attempt - 1}")
-                    print(f"Finish Reason: {finish_reason}")
-                    print("=====================\n")
-                    
-                    success = True
-                    break
-
-                except Exception as gemini_err:
-                    elapsed = time.time() - t0
-                    is_transient = "503" in str(gemini_err) or "429" in str(gemini_err) or "UNAVAILABLE" in str(gemini_err) or "ResourceExhausted" in str(gemini_err)
-                    
-                    print(f"\n=====================")
-                    print(f"GEMINI EXCEPTION (Model: {model_name}, Attempt: {attempt}/3)")
-                    print("=====================")
-                    print(f"Status: {gemini_err}")
-                    print(f"Elapsed Time: {elapsed:.3f} seconds")
-                    print("=====================\n")
-
-                    if is_transient and attempt < max_retries:
-                        sleep_time = backoff * (2 ** (attempt - 1))
-                        print(f"[RETRYING] Waiting {sleep_time:.2f} seconds before retry...")
-                        await asyncio.sleep(sleep_time)
-                    else:
-                        final_err = gemini_err
-                        break # Break retry loop to try next model in failover list
-
-            if success:
-                break
-        else:
-            print("[MODEL PIPELINE] Gemini API rate limit reached. Returning structured fallback tutor response...")
+        if not raw_text:
+            print("[MODEL PIPELINE] Gemini Gateway slots exhausted. Returning structured fallback tutor response...")
             tutor_data = feynman_engine.get_fallback_document(
                 user_message=request.user_message,
                 current_mastery=session.mastery,
@@ -1143,7 +1055,25 @@ async def tutor_chat(
             return tutor_data
 
         # Parse and validate full JSON response through canonical validator
-        raw_json = json.loads(response.text)
+        try:
+            raw_json = json.loads(raw_text)
+        except Exception:
+            # If JSON parsing failed, use structured fallback document
+            tutor_data = feynman_engine.get_fallback_document(
+                user_message=request.user_message,
+                current_mastery=session.mastery,
+                sources=sources_citation
+            )
+            session.mastery = tutor_data["mastery_score"]
+            ai_chat_msg = ChatMessage(
+                session_id=request.session_id,
+                role="model",
+                content=json.dumps(tutor_data)
+            )
+            db.add(ai_chat_msg)
+            db.commit()
+            return tutor_data
+
         raw_json["sources"] = sources_citation
         raw_json["canonical_topic"] = cleaned_user_topic
         tutor_doc = feynman_engine.validate_and_build_document(raw_json, session.mastery)

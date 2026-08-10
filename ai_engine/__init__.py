@@ -9,6 +9,7 @@ from .config import engine_config
 from .providers.provider_factory import ProviderFactory
 from .response_validator import ResponseValidator
 from .prompt_builder import PromptBuilder
+from .gemini_gateway import GeminiGateway, GeminiKeyPool, gemini_gateway
 
 __all__ = [
     "FeynmanCognitiveEngine",
@@ -19,5 +20,8 @@ __all__ = [
     "engine_config",
     "ProviderFactory",
     "ResponseValidator",
-    "PromptBuilder"
+    "PromptBuilder",
+    "GeminiGateway",
+    "GeminiKeyPool",
+    "gemini_gateway"
 ]
