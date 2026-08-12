@@ -1,4 +1,5 @@
 services:
+  # 1. Primary FastAPI Web Service
   - type: web
     name: feynman-ai-tutor
     env: python
@@ -9,9 +10,13 @@ services:
     envVars:
       - key: AI_PROVIDER
         value: gemini
-      - key: AI_MODEL_NAME
-        value: gemini-2.5-flash
-      - key: GEMINI_API_KEY
+      - key: GEMINI_MODEL
+        value: gemini-flash-latest
+      - key: GEMINI_API_KEY_1
+        sync: false
+      - key: GEMINI_API_KEY_2
+        sync: false
+      - key: GEMINI_API_KEY_3
         sync: false
       - key: SECRET_KEY
         generateValue: true
@@ -29,9 +34,45 @@ services:
         sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
       - key: ADMIN_SECRET_KEY
         sync: false
 
+  # 2. Celery Background Worker Service
+  - type: worker
+    name: feynman-celery-worker
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "celery -A jobs.celery_app worker --loglevel=info -c 4"
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: feynman-db
+          property: connectionString
+      - key: REDIS_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+
+  # 3. Celery Beat Scheduler Service
+  - type: worker
+    name: feynman-celery-beat
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "celery -A jobs.celery_app beat --loglevel=info"
+    autoDeploy: true
+    envVars:
+      - key: REDIS_URL
+        sync: false
+
 databases:
+  # Managed PostgreSQL Production Database
   - name: feynman-db
     plan: free
+

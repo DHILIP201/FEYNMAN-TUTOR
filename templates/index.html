@@ -19,13 +19,13 @@
 <body class="h-screen w-screen flex bg-[#0A0D14] text-gray-200 overflow-hidden font-sans antialiased relative">
     
     <!-- ==================== MAIN AUTHENTICATION OVERLAY ==================== -->
-    <div id="auth-overlay" class="absolute inset-0 bg-[#07090E]/80 backdrop-blur-xl z-50 flex items-center justify-center pointer-events-auto">
-        <div class="bg-[#111622] rounded-3xl p-8 w-full max-w-md border border-[#1F293D]/60 shadow-2xl relative">
+    <div id="auth-overlay" class="absolute inset-0 bg-[#07090E]/85 backdrop-blur-xl z-50 flex items-center justify-center p-4 pointer-events-auto">
+        <div class="bg-[#111622] rounded-3xl p-8 w-full max-w-[560px] border border-[#1F293D]/60 shadow-2xl relative">
             
             <!-- Auth Form Content -->
             <div id="auth-inner-content" class="space-y-6">
                 <div class="text-center">
-                    <div class="w-14 h-14 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center text-white shadow-lg mx-auto mb-4 animate-pulse">
+                    <div class="w-14 h-14 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center text-white shadow-lg mx-auto mb-4 shadow-indigo-500/25">
                         <i class="fa-solid fa-graduation-cap text-2xl"></i>
                     </div>
                     <h2 id="auth-title" class="text-2xl font-bold font-display text-white tracking-tight">Feynman Tutor AI</h2>
@@ -34,43 +34,54 @@
 
                 <!-- Tab Toggles -->
                 <div class="flex border-b border-[#1F293D]">
-                    <button type="button" id="tab-login" onclick="setAuthMode('login')" class="flex-1 py-2 text-center font-semibold text-indigo-400 border-b-2 border-indigo-500 cursor-pointer focus:outline-none">Sign In</button>
-                    <button type="button" id="tab-signup" onclick="setAuthMode('signup')" class="flex-1 py-2 text-center font-semibold text-gray-400 border-b-2 border-transparent hover:text-gray-200 cursor-pointer focus:outline-none">Register</button>
+                    <button type="button" id="tab-login" onclick="setAuthMode('login')" class="flex-1 py-2.5 text-center font-semibold text-indigo-400 border-b-2 border-indigo-500 cursor-pointer focus:outline-none transition-colors">Sign In</button>
+                    <button type="button" id="tab-signup" onclick="setAuthMode('signup')" class="flex-1 py-2.5 text-center font-semibold text-gray-400 border-b-2 border-transparent hover:text-gray-200 cursor-pointer focus:outline-none transition-colors">Register</button>
                 </div>
 
                 <!-- Form Inputs -->
                 <div class="space-y-4">
-                    <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4">
+                    <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4" novalidate>
                         <div id="auth-name-field" class="hidden">
-                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Full Name</label>
-                            <input type="text" id="auth-name" class="w-full px-4 py-3 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" placeholder="e.g. Marie Curie">
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Full Name</label>
+                            <input type="text" id="auth-name" class="w-full px-4 py-3 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-gray-600 text-sm" placeholder="Enter your full name" autocomplete="name">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Email Address</label>
-                            <input type="email" id="auth-email" required class="w-full px-4 py-3 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" placeholder="you@university.edu">
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Email Address</label>
+                            <input type="email" id="auth-email" required class="w-full px-4 py-3 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-gray-600 text-sm" placeholder="Enter your email" autocomplete="email">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Password</label>
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Password</label>
                             <div class="relative">
-                                <input type="password" id="auth-password" required class="w-full px-4 py-3 pr-10 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" placeholder="••••••••">
-                                <button type="button" onclick="togglePasswordVisibility('auth-password', this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors focus:outline-none">
+                                <input type="password" id="auth-password" required class="w-full px-4 py-3 pr-10 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-gray-600 text-sm" placeholder="Enter your password" autocomplete="current-password">
+                                <button type="button" onclick="togglePasswordVisibility('auth-password', this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors focus:outline-none" aria-label="Toggle password visibility">
                                     <i class="fa-regular fa-eye text-sm"></i>
                                 </button>
                             </div>
-                            
-                            <!-- Remember Me & Forgot Password -->
-                            <div class="flex items-center justify-between text-xs mt-2.5">
-                                <label class="flex items-center gap-2 text-gray-400 cursor-pointer select-none">
-                                    <input type="checkbox" id="auth-remember" class="w-3.5 h-3.5 rounded bg-[#0D111A] border-[#1F293D] text-indigo-500 focus:ring-0 cursor-pointer">
-                                    <span>Remember me</span>
-                                </label>
-                                <button type="button" onclick="openForgotPasswordModal()" class="text-indigo-400 hover:text-indigo-300 font-medium transition-colors focus:outline-none">Forgot Password?</button>
+                        </div>
+
+                        <!-- Confirm Password (Register mode only) -->
+                        <div id="auth-confirm-password-field" class="hidden">
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Confirm Password</label>
+                            <div class="relative">
+                                <input type="password" id="auth-confirm-password" class="w-full px-4 py-3 pr-10 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-gray-600 text-sm" placeholder="Confirm your password" autocomplete="new-password">
+                                <button type="button" onclick="togglePasswordVisibility('auth-confirm-password', this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors focus:outline-none" aria-label="Toggle password visibility">
+                                    <i class="fa-regular fa-eye text-sm"></i>
+                                </button>
                             </div>
                         </div>
                         
-                        <button type="submit" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/20 flex justify-center items-center gap-2">
+                        <!-- Remember Me & Forgot Password (Sign In mode) -->
+                        <div id="auth-options-row" class="flex items-center justify-between text-xs mt-2.5">
+                            <label class="flex items-center gap-2 text-gray-400 cursor-pointer select-none">
+                                <input type="checkbox" id="auth-remember" class="w-3.5 h-3.5 rounded bg-[#0D111A] border-[#1F293D] text-indigo-500 focus:ring-0 cursor-pointer" checked>
+                                <span>Remember me</span>
+                            </label>
+                            <button type="button" onclick="openForgotPasswordModal()" class="text-indigo-400 hover:text-indigo-300 font-medium transition-colors focus:outline-none">Forgot Password?</button>
+                        </div>
+                        
+                        <button type="submit" id="auth-submit-btn" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/20 flex justify-center items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                             <span id="auth-btn-text">Sign In</span>
-                            <i class="fa-solid fa-arrow-right text-sm"></i>
+                            <i id="auth-btn-icon" class="fa-solid fa-arrow-right text-sm"></i>
                         </button>
                     </form>
 
@@ -80,10 +91,10 @@
                         <div class="flex-grow border-t border-[#1F293D]"></div>
                     </div>
 
-                    <!-- Guest Demo Bypass -->
-                    <button type="button" onclick="continueAsGuest()" class="w-full bg-[#1A2030] hover:bg-[#232B40] text-indigo-400 border border-indigo-500/20 font-semibold py-3.5 rounded-xl transition-all flex justify-center items-center gap-2 group">
-                        <span>Continue as Guest (Demo Experience)</span>
-                        <i class="fa-solid fa-bolt text-amber-400 group-hover:scale-125 transition-all"></i>
+                    <!-- Guest Mode Button -->
+                    <button type="button" id="auth-guest-btn" onclick="continueAsGuest()" class="w-full bg-[#1A2030] hover:bg-[#232B40] text-indigo-300 border border-indigo-500/20 font-semibold py-3.5 rounded-xl transition-all flex justify-center items-center gap-2 group cursor-pointer disabled:opacity-50">
+                        <span>Continue as Guest</span>
+                        <i class="fa-solid fa-bolt text-amber-400 group-hover:scale-125 transition-transform"></i>
                     </button>
                     
                     <div id="auth-alert" class="text-center text-xs text-red-400 min-h-[16px] mt-2 font-medium"></div>
@@ -123,7 +134,7 @@
                 <div class="space-y-3 pt-2">
                     <div>
                         <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Email Address</label>
-                        <input type="email" id="forgot-email" class="w-full px-4 py-3 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" placeholder="you@university.edu">
+                        <input type="email" id="forgot-email" class="w-full px-4 py-3 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm placeholder:text-gray-600" placeholder="Enter your email">
                     </div>
                     <button onclick="sendPasswordResetCode()" id="forgot-send-btn" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold py-3 rounded-xl transition-all text-sm flex items-center justify-center gap-2">
                         <span>Send Verification Code</span>

@@ -42,6 +42,10 @@ class User(Base):
     learner_profile = relationship("LearnerProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
     topic_masteries = relationship("TopicMastery", back_populates="user", cascade="all, delete-orphan")
     learning_events = relationship("LearningEvent", back_populates="user", cascade="all, delete-orphan")
+    subscription = relationship("UserSubscription", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    notification_preferences = relationship("NotificationPreference", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    certificates = relationship("CertificateRecord", back_populates="user", cascade="all, delete-orphan")
+
 
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
@@ -172,7 +176,7 @@ class UserSubscription(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    user = relationship("User", foreign_keys=[user_id])
+    user = relationship("User", back_populates="subscription")
 
 
 class NotificationPreference(Base):
@@ -187,7 +191,7 @@ class NotificationPreference(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    user = relationship("User", foreign_keys=[user_id])
+    user = relationship("User", back_populates="notification_preferences")
 
 
 class TelemetryLog(Base):
@@ -215,6 +219,27 @@ class TelemetryLog(Base):
     auth_failure = Column(Boolean, default=False, nullable=False)
     timestamp = Column(DateTime, index=True, nullable=False)
 
+
+class CertificateRecord(Base):
+    """
+    Persistent record of an issued mastery certificate.
+    v4 UUID cert_uuid is publicly verifiable via /verify/{cert_uuid}.
+    """
+    __tablename__ = "certificate_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cert_uuid = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    student_name = Column(String, nullable=False)
+    topic = Column(String, index=True, nullable=False)
+    mastery_score = Column(Integer, nullable=False)
+    tier = Column(String, nullable=False)
+    issued_at = Column(DateTime, nullable=False)
+    revoked = Column(Boolean, default=False, nullable=False)
+
+    user = relationship("User", back_populates="certificates")
+
+
 # Create tables
 def init_db():
     Base.metadata.create_all(bind=engine)
@@ -226,3 +251,4 @@ def get_db():
         yield db
     finally:
         db.close()
+

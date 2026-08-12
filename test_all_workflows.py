@@ -215,16 +215,24 @@ from ai_engine.schemas import LessonMode
 print("[TEST] Verifying Canonical Topic Extractor...")
 test_prompts = [
     ("Teach me neural networks step by step", "Neural Networks"),
+    ("Teach me step by step until I understand neural networks", "Neural Networks"),
     ("Explain this concept even simpler", "Core Concept"),
+    ("Explain this concept even simpler: activation functions", "Activation Functions"),
     ("Give a real world analogy for binary search", "Binary Search"),
+    ("Give an analogy for dynamic programming", "Dynamic Programming"),
     ("Tell me about advanced applications of transformers", "Transformers"),
-    ("Explain recursion tree stack bounds", "Recursion Tree Stack Bounds")
+    ("Tell me about advanced applications of recursion", "Recursion"),
+    ("Explain recursion tree stack bounds", "Recursion Tree Stack Bounds"),
+    ("What is CNN", "CNN"),
+    ("What is SQL", "SQL"),
+    ("Deep dive into ACID", "ACID"),
 ]
 
 for raw_p, expected_t in test_prompts:
     extracted = extract_canonical_topic(raw_p)
     assert extracted == expected_t, f"Topic extraction failed for '{raw_p}': got '{extracted}', expected '{expected_t}'"
-print("  [OK] Canonical Topic Extraction: PASS (100% clean)")
+print("  [OK] Canonical Topic Extraction: PASS (100% clean across all prompt variants)")
+
 
 # 6B: Verify All 4 Lesson Modes & Mode-Specific Diagrams
 print("[TEST] Verifying 4 Lesson Modes & Mode-Specific Diagrams...")
@@ -1155,6 +1163,332 @@ finally:
 
 print("\n[TRACK C-1] All database hardening tests PASSED.")
 
+# ============================================================
+# TRACK C-2: MULTI-SUBJECT KNOWLEDGE GRAPH
+# ============================================================
+print("\n--- Track C-2: Multi-Subject Knowledge Graph ---")
+
+# C.2.1: Mathematics nodes present in DB after seeding
+print("[TEST C.2.1] Mathematics cluster nodes present after seeding...")
+from database import KnowledgeNode as _KN, KnowledgeEdge as _KE
+_c2_db = SessionLocal()
+try:
+    math_nodes = _c2_db.query(_KN).filter(_KN.category == "Mathematics").all()
+    math_topics = {n.canonical_topic for n in math_nodes}
+    for expected in ("Derivatives", "Integrals", "Limits", "Linear Algebra", "Probability", "Statistics", "Calculus"):
+        assert expected in math_topics, f"Math node missing: {expected}"
+    print(f"  [OK] Test C.2.1: Mathematics cluster ({len(math_nodes)} nodes): PASS")
+
+    # C.2.2: Physics nodes present
+    print("[TEST C.2.2] Physics cluster nodes present after seeding...")
+    phys_nodes = _c2_db.query(_KN).filter(_KN.category == "Physics").all()
+    phys_topics = {n.canonical_topic for n in phys_nodes}
+    for expected in ("Kinematics", "Newton's Laws", "Work & Energy", "Electricity", "Magnetism", "Quantum Mechanics"):
+        assert expected in phys_topics, f"Physics node missing: {expected}"
+    print(f"  [OK] Test C.2.2: Physics cluster ({len(phys_nodes)} nodes): PASS")
+
+    # C.2.3: Cross-subject edges present (Derivatives -> Kinematics)
+    print("[TEST C.2.3] Cross-subject prerequisite edges (Derivatives->Kinematics)...")
+    cross_edge = _c2_db.query(_KE).filter(
+        _KE.source_topic == "Derivatives",
+        _KE.target_topic == "Kinematics"
+    ).first()
+    assert cross_edge is not None, "Cross-subject edge Derivatives->Kinematics missing"
+    assert cross_edge.relationship_type == "PREREQUISITE_OF"
+    print("  [OK] Test C.2.3: Cross-subject edge Derivatives->Kinematics: PASS")
+
+    # C.2.4: No self-referencing edges
+    print("[TEST C.2.4] No self-referencing edges in graph...")
+    self_refs = _c2_db.query(_KE).filter(_KE.source_topic == _KE.target_topic).count()
+    assert self_refs == 0, f"Found {self_refs} self-referencing edges — must be 0"
+    print("  [OK] Test C.2.4: Zero self-referencing edges: PASS")
+
+    # C.2.5: Seeding is idempotent (run seed again, counts unchanged)
+    print("[TEST C.2.5] Seeding is idempotent (no duplicates on second run)...")
+    count_before = _c2_db.query(_KN).count()
+    seed_foundational_knowledge_graph(_c2_db)
+    count_after = _c2_db.query(_KN).count()
+    assert count_before == count_after, f"Idempotency failed: {count_before} -> {count_after} nodes after second seed"
+    print(f"  [OK] Test C.2.5: Seed idempotency ({count_after} total nodes, no duplicates): PASS")
+
+finally:
+    _c2_db.close()
+
+# C.2.6: /subjects/ endpoint returns primary subjects
+print("[TEST C.2.6] /subjects/ endpoint returns CS, Mathematics, Physics...")
+r_subjects = client.get("/subjects/")
+assert r_subjects.status_code == 200, f"/subjects/ failed: {r_subjects.text}"
+s_data = r_subjects.json()
+assert "subjects" in s_data
+assert "primary_subjects" in s_data
+returned_cats = {s["category"] for s in s_data["subjects"]}
+for required_cat in ("Computer Science", "Mathematics", "Physics"):
+    assert required_cat in returned_cats, f"/subjects/ missing: {required_cat}"
+assert s_data["primary_subjects"] == ["Computer Science", "Mathematics", "Physics"]
+# Verify no subject entry is missing its color field
+for sub in s_data["subjects"]:
+    assert "color" in sub, f"Subject missing color: {sub}"
+print(f"  [OK] Test C.2.6: /subjects/ returns {len(s_data['subjects'])} categories incl. CS+Math+Physics: PASS")
+
+print("\n[TRACK C-2] All multi-subject knowledge graph tests PASSED.")
+
+# ── Track C-3: Learning Reports & Certificates ──────────────────────────────
+print("\n--- Track C-3: Learning Reports & Certificates ---")
+
+# Seed a topic with >=80% mastery for the test user to test certificate generation
+_c3_db = SessionLocal()
+try:
+    _u = _c3_db.query(User).filter(User.email == "e2e_acceptance_test@domain.com").first()
+    assert _u is not None
+    _m_rec = _c3_db.query(TopicMastery).filter(
+        TopicMastery.user_id == _u.id,
+        TopicMastery.canonical_topic == "Recursion"
+    ).first()
+    if not _m_rec:
+        _m_rec = TopicMastery(
+            user_id=_u.id,
+            canonical_topic="Recursion",
+            mastery_score=92,
+            confidence_score=0.88,
+            attempt_count=5,
+            correct_count=5,
+            last_studied_at=datetime.utcnow()
+        )
+        _c3_db.add(_m_rec)
+    else:
+        _m_rec.mastery_score = 92
+    
+    # Also ensure a low-mastery topic exists
+    _m_low = _c3_db.query(TopicMastery).filter(
+        TopicMastery.user_id == _u.id,
+        TopicMastery.canonical_topic == "Dynamic Programming"
+    ).first()
+    if not _m_low:
+        _m_low = TopicMastery(
+            user_id=_u.id,
+            canonical_topic="Dynamic Programming",
+            mastery_score=35,
+            confidence_score=0.40,
+            attempt_count=2,
+            correct_count=0,
+            last_studied_at=datetime.utcnow()
+        )
+        _c3_db.add(_m_low)
+    else:
+        _m_low.mastery_score = 35
+
+    _c3_db.commit()
+finally:
+    _c3_db.close()
+
+# C.3.1: GET /learner/report/ returns structured report
+print("[TEST C.3.1] /learner/report/ returns structured summary and topic list...")
+r_rep = client.get("/learner/report/", headers={"Authorization": f"Bearer {token}"})
+assert r_rep.status_code == 200, f"/learner/report/ failed: {r_rep.text}"
+rep_data = r_rep.json()
+assert "summary" in rep_data
+assert "topics" in rep_data
+assert "spaced_repetition" in rep_data
+assert rep_data["summary"]["student_name"] is not None
+assert rep_data["summary"]["topics_mastered"] >= 1
+print(f"  [OK] Test C.3.1: /learner/report/ (mastered={rep_data['summary']['topics_mastered']}, accuracy={rep_data['summary']['quiz_accuracy']}%): PASS")
+
+# C.3.2: GET /learner/certificate/Recursion/ generates PDF and creates CertificateRecord
+print("[TEST C.3.2] /learner/certificate/{topic}/ generates PDF for >=80% mastery...")
+r_cert = client.get("/learner/certificate/Recursion/", headers={"Authorization": f"Bearer {token}"})
+assert r_cert.status_code == 200, f"Certificate generation failed: {r_cert.text}"
+assert r_cert.headers.get("content-type") == "application/pdf"
+assert len(r_cert.content) > 1000, "PDF content too small"
+cert_uuid = r_cert.headers.get("x-certificate-uuid")
+assert cert_uuid is not None, "Missing X-Certificate-UUID header"
+print(f"  [OK] Test C.3.2: PDF Certificate generated ({len(r_cert.content)} bytes, UUID={cert_uuid}): PASS")
+
+# C.3.3: GET /learner/certificate/Dynamic Programming/ rejected with 403 (mastery < 80%)
+print("[TEST C.3.3] /learner/certificate/{topic}/ rejected (403) for <80% mastery...")
+r_cert_fail = client.get("/learner/certificate/Dynamic Programming/", headers={"Authorization": f"Bearer {token}"})
+assert r_cert_fail.status_code == 403, f"Expected 403, got {r_cert_fail.status_code}: {r_cert_fail.text}"
+print("  [OK] Test C.3.3: Low mastery (<80%) certificate guard (403): PASS")
+
+# C.3.4: GET /verify/{uuid} public verification endpoint
+print("[TEST C.3.4] /verify/{uuid} public verification returns safe metadata...")
+r_ver = client.get(f"/verify/{cert_uuid}", headers={"Accept": "application/json"})
+assert r_ver.status_code == 200, f"/verify/ failed: {r_ver.text}"
+ver_data = r_ver.json()
+assert ver_data["valid"] is True
+assert ver_data["topic"] == "Recursion"
+assert ver_data["mastery_score"] == 92
+assert ver_data["tier"] == "Distinguished"
+# Zero-secret invariant: confirm no user_id, email, or password in verification JSON
+assert "user_id" not in ver_data
+assert "email" not in ver_data
+assert "password" not in ver_data
+print("  [OK] Test C.3.4: /verify/{uuid} public verification & zero-secret invariant: PASS")
+
+# C.3.5: GET /verify/{invalid_uuid} returns 404 for JSON client
+print("[TEST C.3.5] /verify/{invalid_uuid} returns 404 for invalid cert...")
+r_ver_bad = client.get("/verify/00000000-0000-0000-0000-000000000000", headers={"Accept": "application/json"})
+assert r_ver_bad.status_code == 404
+print("  [OK] Test C.3.5: Invalid certificate 404: PASS")
+
+print("\n[TRACK C-3] All learning reports and certificate tests PASSED.")
+
+
+# ── Track C-4: Admin Operations Console ──────────────────────────────────────
+print("\n--- Track C-4: Admin Operations Console ---")
+
+# C.4.1 & C.4.2: Admin login
+from api.admin import ADMIN_SECRET_KEY
+print("[TEST C.4.1 & C.4.2] Admin login validation (correct vs wrong key)...")
+r_adm_bad = client.post("/admin/login/", json={"secret_key": "wrong-secret-key-123"})
+assert r_adm_bad.status_code == 401, f"Expected 401, got {r_adm_bad.status_code}"
+
+r_adm_good = client.post("/admin/login/", json={"secret_key": ADMIN_SECRET_KEY})
+assert r_adm_good.status_code == 200, f"Admin login failed: {r_adm_good.text}"
+admin_data = r_adm_good.json()
+assert "access_token" in admin_data
+assert admin_data["role"] == "admin"
+admin_jwt = admin_data["access_token"]
+print("  [OK] Test C.4.1 & C.4.2: Admin authentication & JWT issuance: PASS")
+
+# C.4.3 & C.4.4: /admin/metrics/ authorization & data shape
+print("[TEST C.4.3 & C.4.4] /admin/metrics/ authorization guard & metrics response...")
+# Regular user token must be rejected with 403
+r_m_unauth = client.get("/admin/metrics/", headers={"Authorization": f"Bearer {token}"})
+assert r_m_unauth.status_code == 403, f"Expected 403 for non-admin, got {r_m_unauth.status_code}"
+
+# Admin token must succeed
+r_m_auth = client.get("/admin/metrics/", headers={"Authorization": f"Bearer {admin_jwt}"})
+assert r_m_auth.status_code == 200, f"/admin/metrics/ failed: {r_m_auth.text}"
+m_json = r_m_auth.json()
+assert "dau" in m_json
+assert "total_users" in m_json
+assert "total_sessions" in m_json
+assert "error_rate_pct" in m_json
+assert "top_weak_spots" in m_json
+print(f"  [OK] Test C.4.3 & C.4.4: /admin/metrics/ (DAU={m_json['dau']}, total_users={m_json['total_users']}): PASS")
+
+# C.4.5: /admin/users/ paginated user table
+print("[TEST C.4.5] /admin/users/ paginated student directory...")
+r_adm_users = client.get("/admin/users/?page=1&limit=10", headers={"Authorization": f"Bearer {admin_jwt}"})
+assert r_adm_users.status_code == 200, f"/admin/users/ failed: {r_adm_users.text}"
+u_data = r_adm_users.json()
+assert u_data["total"] >= 1
+assert len(u_data["users"]) >= 1
+assert "email" in u_data["users"][0]
+assert "plan" in u_data["users"][0]
+print(f"  [OK] Test C.4.5: /admin/users/ ({len(u_data['users'])} users listed): PASS")
+
+# C.4.6: /admin/gateway/ key pool health monitor
+print("[TEST C.4.6] /admin/gateway/ real-time key pool monitoring...")
+r_gw = client.get("/admin/gateway/", headers={"Authorization": f"Bearer {admin_jwt}"})
+assert r_gw.status_code == 200, f"/admin/gateway/ failed: {r_gw.text}"
+gw_json = r_gw.json()
+assert "total_slots" in gw_json
+assert "slots" in gw_json
+# Zero-secret invariant: ensure no slot exposes an API key string
+for s in gw_json["slots"]:
+    assert "api_key" not in s
+    assert "key" not in s
+print(f"  [OK] Test C.4.6: /admin/gateway/ ({gw_json['total_slots']} slots, zero keys exposed): PASS")
+
+print("\n[TRACK C-4] All admin console tests PASSED.")
+
+
+# ── Track C-5: Background Workers & Notification Preferences ─────────────────
+print("\n--- Track C-5: Background Workers & Notification Preferences ---")
+
+# C.5.1: GET /notifications/preferences/
+print("[TEST C.5.1] /notifications/preferences/ default all-enabled...")
+r_np = client.get("/notifications/preferences/", headers={"Authorization": f"Bearer {token}"})
+assert r_np.status_code == 200, f"/notifications/preferences/ failed: {r_np.text}"
+np_data = r_np.json()
+assert np_data["email_digest"] is True
+assert np_data["streak_reminders"] is True
+assert np_data["weekly_report"] is True
+print("  [OK] Test C.5.1: /notifications/preferences/ defaults all-enabled: PASS")
+
+# C.5.2: POST /notifications/preferences/ updates and persists opt-out
+print("[TEST C.5.2] /notifications/preferences/ opt-out update...")
+r_np_up = client.post(
+    "/notifications/preferences/",
+    json={"email_digest": False, "streak_reminders": True},
+    headers={"Authorization": f"Bearer {token}"}
+)
+assert r_np_up.status_code == 200, f"Preference update failed: {r_np_up.text}"
+assert r_np_up.json()["preferences"]["email_digest"] is False
+
+# Verify change persisted on next GET
+r_np_check = client.get("/notifications/preferences/", headers={"Authorization": f"Bearer {token}"})
+assert r_np_check.json()["email_digest"] is False
+print("  [OK] Test C.5.2: Notification preference update persistence: PASS")
+
+# C.5.3 & C.5.4: Celery task routines run without exception
+print("[TEST C.5.3 & C.5.4] Celery task functions (daily digests & streak checks)...")
+from jobs.tasks import dispatch_daily_digests, check_streak_preservation
+digest_result = dispatch_daily_digests()
+assert "dispatched" in digest_result
+streak_result = check_streak_preservation()
+assert "streak_warnings_sent" in streak_result
+print(f"  [OK] Test C.5.3 & C.5.4: Celery background task runners: PASS")
+
+print("\n[TRACK C-5] All background worker and notification tests PASSED.")
+
+
+# ── Track C-6: Billing & Subscriptions (Stripe) ──────────────────────────────
+print("\n--- Track C-6: Billing & Subscriptions (Stripe) ---")
+
+# C.6.1: GET /billing/status/ default free plan
+print("[TEST C.6.1] /billing/status/ returns active plan & entitlements...")
+r_bill = client.get("/billing/status/", headers={"Authorization": f"Bearer {token}"})
+assert r_bill.status_code == 200, f"/billing/status/ failed: {r_bill.text}"
+b_data = r_bill.json()
+assert b_data["plan"] == "free"
+assert b_data["is_pro"] is False
+assert b_data["entitlements"]["daily_ai_queries"] == 10
+print(f"  [OK] Test C.6.1: /billing/status/ default free plan entitlements: PASS")
+
+# C.6.2: POST /billing/create-checkout/
+print("[TEST C.6.2] /billing/create-checkout/ returns checkout session...")
+r_co = client.post("/billing/create-checkout/", headers={"Authorization": f"Bearer {token}"})
+assert r_co.status_code == 200, f"/billing/create-checkout/ failed: {r_co.text}"
+co_data = r_co.json()
+assert "checkout_url" in co_data
+assert "session_id" in co_data
+print(f"  [OK] Test C.6.2: /billing/create-checkout/ session creation: PASS")
+
+# C.6.3 & C.6.4: POST /billing/webhook/ checkout.session.completed upgrades user to pro
+print("[TEST C.6.3 & C.6.4] /billing/webhook/ upgrades subscription to Pro...")
+_c6_db = SessionLocal()
+try:
+    _u_bill = _c6_db.query(User).filter(User.email == "e2e_acceptance_test@domain.com").first()
+    webhook_payload = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "client_reference_id": str(_u_bill.id),
+                "customer": "cus_test_12345"
+            }
+        }
+    }
+finally:
+    _c6_db.close()
+
+r_hook = client.post("/billing/webhook/", json=webhook_payload)
+assert r_hook.status_code == 200, f"Webhook failed: {r_hook.text}"
+
+# Verify user is now Pro
+r_bill_pro = client.get("/billing/status/", headers={"Authorization": f"Bearer {token}"})
+assert r_bill_pro.status_code == 200
+pro_data = r_bill_pro.json()
+assert pro_data["plan"] == "pro"
+assert pro_data["is_pro"] is True
+assert pro_data["entitlements"]["daily_ai_queries"] == "unlimited"
+assert pro_data["entitlements"]["pdf_certificates"] is True
+print("  [OK] Test C.6.3 & C.6.4: Webhook upgrade & Pro entitlements (unlimited queries): PASS")
+
+print("\n[TRACK C-6] All billing and subscription tests PASSED.")
+
 print("\n====================================================")
 print("ALL PROGRAMMATIC WORKFLOW TESTS COMPLETED SUCCESSFULLY!")
 print("====================================================")
+

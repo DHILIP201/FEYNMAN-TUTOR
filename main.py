@@ -38,7 +38,11 @@ from database import (
     TopicMastery,
     KnowledgeNode,
     KnowledgeEdge,
-    LearningEvent
+    LearningEvent,
+    UserSubscription,
+    NotificationPreference,
+    CertificateRecord,
+    TelemetryLog
 )
 from ai_engine import (
     feynman_engine, 
@@ -48,6 +52,11 @@ from ai_engine import (
     learner_memory_engine,
     seed_foundational_knowledge_graph
 )
+from ai_engine.memory.subject_catalog import get_subjects as _get_subjects, SUBJECT_CATALOG, PRIMARY_SUBJECTS
+from api.certificates import generate_certificate, verify_certificate, get_learner_report
+from api.admin import router as admin_router
+from api.billing import router as billing_router
+
 from security import (
     get_password_hash, 
     verify_password, 
@@ -113,10 +122,13 @@ async def telemetry_middleware(request: Request, call_next):
     try:
         response = await call_next(request)
         finalize_and_emit(event, response.status_code)
+        response.headers["X-Request-ID"] = event.request_id
+        response.headers["X-Process-Time-Ms"] = str(event.latency_ms)
         return response
     except Exception as exc:
         finalize_and_emit(event, 500)
         raise
+
 
 # Security Headers & Abuse Protection Middleware
 @app.middleware("http")
@@ -364,6 +376,26 @@ async def signup(user_data: UserSignup, request: Request, db: Session = Depends(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    # Seed default free subscription and all-enabled notification preferences
+    try:
+        existing_sub = db.query(UserSubscription).filter(UserSubscription.user_id == new_user.id).first()
+        if not existing_sub:
+            db.add(UserSubscription(user_id=new_user.id, plan="free"))
+        existing_pref = db.query(NotificationPreference).filter(NotificationPreference.user_id == new_user.id).first()
+        if not existing_pref:
+            db.add(NotificationPreference(
+                user_id=new_user.id,
+                email_digest=True,
+                streak_reminders=True,
+                weekly_report=True
+            ))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[SIGNUP SEED WARNING] Could not seed preferences/sub: {e}")
+
+
     
     if is_dev:
         access_token = create_access_token(data={"sub": new_user.email})
@@ -1031,6 +1063,30 @@ def get_learning_events(current_user: User = Depends(get_current_user), db: Sess
         for ev in events
     ]
 
+
+# ── C-2: Multi-Subject Knowledge Graph ─────────────────────────────────────
+@app.get("/subjects/")
+def get_subject_catalog(db: Session = Depends(get_db)):
+    """
+    C-2: Returns all distinct subject categories in the knowledge graph,
+    ordered with primary subjects (Computer Science, Mathematics, Physics) first.
+    Includes display metadata (color, icon, description) for each subject.
+    No authentication required — public catalog endpoint.
+    """
+    categories = _get_subjects(db)
+    return {
+        "subjects": [
+            {
+                "category": cat,
+                "color": SUBJECT_CATALOG.get(cat, {}).get("color", "#888888"),
+                "icon_class": SUBJECT_CATALOG.get(cat, {}).get("icon_class", "fa-book"),
+                "description": SUBJECT_CATALOG.get(cat, {}).get("description", cat),
+            }
+            for cat in categories
+        ],
+        "primary_subjects": PRIMARY_SUBJECTS,
+    }
+
 # --- TUTORING / FILE ENDPOINTS ---
 @app.post("/upload-document/")
 async def upload_document(
@@ -1272,15 +1328,8 @@ async def tutor_chat(
             context_text = "No document attached to this session. Answer from your knowledge and guide the student."
 
     # STAGE 1 & 2: Clean Topic & Formulate LearningPlan via FeynmanCognitiveEngine
-    import re
-    cleaned_user_topic = re.sub(
-        r'^(Teach me step by step until I understand|Explain this concept even simpler|Give a real world analogy|Tell me about|Understanding how the|Understanding|Explain what is|What is)\s+',
-        '',
-        request.user_message,
-        flags=re.IGNORECASE
-    ).strip()
-    if not cleaned_user_topic:
-        cleaned_user_topic = request.user_message
+    from ai_engine.response_validator import extract_canonical_topic
+    cleaned_user_topic = extract_canonical_topic(request.user_message)
 
     # TRACK B: Record Lesson Event & Construct Persistent Learner Memory Context
     learner_memory_engine.record_lesson_started(
@@ -1544,6 +1593,151 @@ def readiness_check():
         )
     return {"status": "ready", "timestamp": datetime.utcnow().isoformat()}
 
+
+# ── Track C Routers ──────────────────────────────────────────────────────────
+app.include_router(admin_router)
+app.include_router(billing_router)
+
+
+# ── Track C-3: Learning Reports & Certificates ──────────────────────────────
+@app.get("/learner/report/")
+def get_learner_learning_report(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    C-3: Comprehensive structured learner report for the authenticated user.
+    """
+    try:
+        return get_learner_report(db, current_user.id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/learner/certificate/{topic}/")
+def get_topic_certificate(
+    topic: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    C-3: Generate and stream PDF certificate of mastery for a topic (≥80% mastery required).
+    """
+    from fastapi.responses import Response
+    try:
+        cert_data = generate_certificate(db, current_user.id, topic)
+        return Response(
+            content=cert_data["pdf_bytes"],
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="feynman_certificate_{topic.replace(" ", "_")}.pdf"',
+                "X-Certificate-UUID": cert_data["cert_uuid"],
+                "X-Certificate-URL": cert_data["public_url"],
+            }
+        )
+    except ValueError as val_err:
+        raise HTTPException(status_code=403, detail=str(val_err))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/verify/{cert_uuid}")
+def verify_certificate_public(
+    cert_uuid: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    C-3: Public certificate verification endpoint.
+    Zero-secret invariant: never exposes private user learning history or raw user IDs.
+    """
+    info = verify_certificate(db, cert_uuid)
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept or request.query_params.get("format") == "json":
+        if not info:
+            raise HTTPException(status_code=404, detail="Certificate not found or revoked")
+        return info
+
+    context = {"request": request, **(info or {"valid": False, "certificate_id": cert_uuid})}
+    return templates.TemplateResponse(
+        request=request,
+        name="certificate.html",
+        context=context
+    )
+
+
+# ── Track C-4: Admin UI ──────────────────────────────────────────────────────
+@app.get("/admin/")
+def get_admin_dashboard_ui(request: Request):
+    """C-4: Admin command center dashboard UI."""
+    return templates.TemplateResponse(request=request, name="admin.html", context={"request": request})
+
+
+
+# ── Track C-5: Notification Preferences ──────────────────────────────────────
+class NotificationPreferenceSchema(BaseModel):
+    email_digest: Optional[bool] = None
+    streak_reminders: Optional[bool] = None
+    weekly_report: Optional[bool] = None
+
+
+@app.get("/notifications/preferences/")
+def get_user_notification_preferences(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    pref = db.query(NotificationPreference).filter(
+        NotificationPreference.user_id == current_user.id
+    ).first()
+    if not pref:
+        pref = NotificationPreference(
+            user_id=current_user.id,
+            email_digest=True,
+            streak_reminders=True,
+            weekly_report=True,
+        )
+        db.add(pref)
+        db.commit()
+        db.refresh(pref)
+    return {
+        "email_digest": pref.email_digest,
+        "streak_reminders": pref.streak_reminders,
+        "weekly_report": pref.weekly_report,
+    }
+
+
+@app.post("/notifications/preferences/")
+def update_user_notification_preferences(
+    schema: NotificationPreferenceSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    pref = db.query(NotificationPreference).filter(
+        NotificationPreference.user_id == current_user.id
+    ).first()
+    if not pref:
+        pref = NotificationPreference(user_id=current_user.id)
+        db.add(pref)
+
+    if schema.email_digest is not None:
+        pref.email_digest = schema.email_digest
+    if schema.streak_reminders is not None:
+        pref.streak_reminders = schema.streak_reminders
+    if schema.weekly_report is not None:
+        pref.weekly_report = schema.weekly_report
+
+    db.commit()
+    db.refresh(pref)
+    return {
+        "status": "success",
+        "preferences": {
+            "email_digest": pref.email_digest,
+            "streak_reminders": pref.streak_reminders,
+            "weekly_report": pref.weekly_report,
+        }
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)

@@ -23,10 +23,12 @@ ENV/
 feynman.db
 chroma_db/
 
-# Logs & Uploads
+# Logs, Uploads & Backups
 *.log
 logs/
 static/uploads/
+backups/
+
 
 # Test & Coverage
 .pytest_cache/

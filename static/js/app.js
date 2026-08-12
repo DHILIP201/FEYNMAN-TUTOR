@@ -565,13 +565,23 @@ async function init() {
         window.history.replaceState({}, document.title, window.location.pathname);
     }
 
-    const token = localStorage.getItem('feynman_token');
-    const userStr = localStorage.getItem('feynman_user');
+    const token = localStorage.getItem('feynman_token') || sessionStorage.getItem('feynman_token');
+    const userStr = localStorage.getItem('feynman_user') || sessionStorage.getItem('feynman_user');
     
     if (!token || !userStr) {
         showAuthOverlay();
     } else {
-        currentUser = JSON.parse(userStr);
+        try {
+            currentUser = JSON.parse(userStr);
+        } catch (e) {
+            currentUser = null;
+            localStorage.removeItem('feynman_token');
+            localStorage.removeItem('feynman_user');
+            sessionStorage.removeItem('feynman_token');
+            sessionStorage.removeItem('feynman_user');
+            showAuthOverlay();
+            return;
+        }
         hideAuthOverlay();
         updateUserProfile();
         
@@ -593,34 +603,56 @@ async function init() {
 
 // --- AUTH UI CONTROLLER ---
 let authMode = 'login';
+let isAuthSubmitting = false;
+
 function setAuthMode(mode) {
     authMode = mode;
     const tabLogin = document.getElementById('tab-login');
     const tabSignup = document.getElementById('tab-signup');
     const nameField = document.getElementById('auth-name-field');
+    const confirmPwField = document.getElementById('auth-confirm-password-field');
+    const optionsRow = document.getElementById('auth-options-row');
     const authBtnText = document.getElementById('auth-btn-text');
+    const alertBox = document.getElementById('auth-alert');
+    
+    if (alertBox) {
+        alertBox.innerText = "";
+        alertBox.className = "text-center text-xs text-red-400 min-h-[16px] mt-2 font-medium";
+    }
     
     if (mode === 'login') {
-        tabLogin.className = "flex-1 py-2 text-center font-semibold text-indigo-400 border-b-2 border-indigo-500 cursor-pointer focus:outline-none";
-        tabSignup.className = "flex-1 py-2 text-center font-semibold text-gray-400 border-b-2 border-transparent hover:text-gray-200 cursor-pointer focus:outline-none";
-        nameField.classList.add('hidden');
-        document.getElementById('auth-name').required = false;
-        authBtnText.innerText = "Sign In";
+        if (tabLogin) tabLogin.className = "flex-1 py-2.5 text-center font-semibold text-indigo-400 border-b-2 border-indigo-500 cursor-pointer focus:outline-none transition-colors";
+        if (tabSignup) tabSignup.className = "flex-1 py-2.5 text-center font-semibold text-gray-400 border-b-2 border-transparent hover:text-gray-200 cursor-pointer focus:outline-none transition-colors";
+        if (nameField) nameField.classList.add('hidden');
+        if (confirmPwField) confirmPwField.classList.add('hidden');
+        if (optionsRow) optionsRow.classList.remove('hidden');
+        const nameInput = document.getElementById('auth-name');
+        if (nameInput) nameInput.required = false;
+        const confirmInput = document.getElementById('auth-confirm-password');
+        if (confirmInput) confirmInput.required = false;
+        if (authBtnText) authBtnText.innerText = "Sign In";
     } else {
-        tabSignup.className = "flex-1 py-2 text-center font-semibold text-indigo-400 border-b-2 border-indigo-500 cursor-pointer focus:outline-none";
-        tabLogin.className = "flex-1 py-2 text-center font-semibold text-gray-400 border-b-2 border-transparent hover:text-gray-200 cursor-pointer focus:outline-none";
-        nameField.classList.remove('hidden');
-        document.getElementById('auth-name').required = true;
-        authBtnText.innerText = "Create Account";
+        if (tabSignup) tabSignup.className = "flex-1 py-2.5 text-center font-semibold text-indigo-400 border-b-2 border-indigo-500 cursor-pointer focus:outline-none transition-colors";
+        if (tabLogin) tabLogin.className = "flex-1 py-2.5 text-center font-semibold text-gray-400 border-b-2 border-transparent hover:text-gray-200 cursor-pointer focus:outline-none transition-colors";
+        if (nameField) nameField.classList.remove('hidden');
+        if (confirmPwField) confirmPwField.classList.remove('hidden');
+        if (optionsRow) optionsRow.classList.add('hidden');
+        const nameInput = document.getElementById('auth-name');
+        if (nameInput) nameInput.required = true;
+        const confirmInput = document.getElementById('auth-confirm-password');
+        if (confirmInput) confirmInput.required = true;
+        if (authBtnText) authBtnText.innerText = "Create Account";
     }
 }
 
 function showAuthOverlay() {
-    document.getElementById('auth-overlay').classList.remove('hidden');
+    const overlay = document.getElementById('auth-overlay');
+    if (overlay) overlay.classList.remove('hidden');
 }
 
 function hideAuthOverlay() {
-    document.getElementById('auth-overlay').classList.add('hidden');
+    const overlay = document.getElementById('auth-overlay');
+    if (overlay) overlay.classList.add('hidden');
 }
 
 function runOsLoaderSequence(callback) {
@@ -629,8 +661,8 @@ function runOsLoaderSequence(callback) {
     const stepsDiv = document.getElementById('loader-steps');
     
     if (authInner) authInner.classList.add('hidden');
-    osLoader.classList.remove('hidden');
-    stepsDiv.innerHTML = '';
+    if (osLoader) osLoader.classList.remove('hidden');
+    if (stepsDiv) stepsDiv.innerHTML = '';
     
     const steps = [
         "Loading Profile",
@@ -648,7 +680,7 @@ function runOsLoaderSequence(callback) {
             const item = document.createElement('div');
             item.className = "flex items-center gap-2 text-gray-300 opacity-0 translate-y-1 transition-all duration-300";
             item.innerHTML = `<span class="text-emerald-400 font-bold">✓</span> <span>${stepText}...</span>`;
-            stepsDiv.appendChild(item);
+            if (stepsDiv) stepsDiv.appendChild(item);
             
             setTimeout(() => {
                 item.classList.remove('opacity-0', 'translate-y-1');
@@ -659,7 +691,7 @@ function runOsLoaderSequence(callback) {
         } else {
             setTimeout(() => {
                 if (authInner) authInner.classList.remove('hidden');
-                osLoader.classList.add('hidden');
+                if (osLoader) osLoader.classList.add('hidden');
                 callback();
             }, 400);
         }
@@ -670,29 +702,99 @@ function runOsLoaderSequence(callback) {
 
 async function handleAuthSubmit(e) {
     e.preventDefault();
-    const name = document.getElementById('auth-name').value;
-    const email = document.getElementById('auth-email').value;
-    const password = document.getElementById('auth-password').value;
+    if (isAuthSubmitting) return;
+
+    const nameInput = document.getElementById('auth-name');
+    const emailInput = document.getElementById('auth-email');
+    const passwordInput = document.getElementById('auth-password');
+    const confirmPasswordInput = document.getElementById('auth-confirm-password');
+    const rememberCheckbox = document.getElementById('auth-remember');
     const alertBox = document.getElementById('auth-alert');
-    alertBox.innerText = "";
-    
+    const submitBtn = document.getElementById('auth-submit-btn');
+    const btnText = document.getElementById('auth-btn-text');
+    const btnIcon = document.getElementById('auth-btn-icon');
+    const guestBtn = document.getElementById('auth-guest-btn');
+
+    if (alertBox) {
+        alertBox.innerText = "";
+        alertBox.className = "text-center text-xs text-red-400 min-h-[16px] mt-2 font-medium";
+    }
+
+    const email = emailInput ? emailInput.value.trim() : "";
+    const password = passwordInput ? passwordInput.value : "";
+    const name = nameInput ? nameInput.value.trim() : "";
+    const confirmPassword = confirmPasswordInput ? confirmPasswordInput.value : "";
+    const rememberMe = rememberCheckbox ? rememberCheckbox.checked : true;
+
+    // Client-side validations
+    if (!email) {
+        if (alertBox) alertBox.innerText = "Please enter your email address.";
+        if (emailInput) emailInput.focus();
+        return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        if (alertBox) alertBox.innerText = "Please enter a valid email address.";
+        if (emailInput) emailInput.focus();
+        return;
+    }
+    if (!password) {
+        if (alertBox) alertBox.innerText = "Please enter your password.";
+        if (passwordInput) passwordInput.focus();
+        return;
+    }
+
+    if (authMode === 'signup') {
+        if (!name) {
+            if (alertBox) alertBox.innerText = "Please enter your full name.";
+            if (nameInput) nameInput.focus();
+            return;
+        }
+        if (password.length < 6) {
+            if (alertBox) alertBox.innerText = "Password must be at least 6 characters long.";
+            if (passwordInput) passwordInput.focus();
+            return;
+        }
+        if (password !== confirmPassword) {
+            if (alertBox) alertBox.innerText = "Passwords do not match.";
+            if (confirmPasswordInput) confirmPasswordInput.focus();
+            return;
+        }
+    }
+
+    // Set loading state
+    isAuthSubmitting = true;
+    if (submitBtn) submitBtn.disabled = true;
+    if (guestBtn) guestBtn.disabled = true;
+    const defaultLabel = authMode === 'signup' ? "Create Account" : "Sign In";
+    if (btnText) btnText.innerText = authMode === 'signup' ? "Creating Account..." : "Signing In...";
+    if (btnIcon) btnIcon.className = "fa-solid fa-spinner animate-spin text-sm";
+
     const endpoint = authMode === 'signup' ? '/auth/signup/' : '/auth/login/';
     const body = authMode === 'signup' ? { name, email, password } : { email, password };
-    
+
     try {
         const response = await fetch(resolveURL(endpoint), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
-        
+
         const data = await response.json();
         if (response.ok) {
+            const storage = rememberMe ? localStorage : sessionStorage;
+            if (rememberMe) {
+                sessionStorage.removeItem('feynman_token');
+                sessionStorage.removeItem('feynman_user');
+            } else {
+                localStorage.removeItem('feynman_token');
+                localStorage.removeItem('feynman_user');
+            }
+
             if (authMode === 'signup') {
                 if (data.access_token) {
-                    // Development Mode: Auto-login immediately
-                    localStorage.setItem('feynman_token', data.access_token);
-                    localStorage.setItem('feynman_user', JSON.stringify(data.user));
+                    storage.setItem('feynman_token', data.access_token);
+                    storage.setItem('feynman_user', JSON.stringify(data.user));
                     currentUser = data.user;
                     showToast("Welcome to Feynman Tutor AI!", "success");
                     runOsLoaderSequence(async () => {
@@ -700,14 +802,16 @@ async function handleAuthSubmit(e) {
                         await init();
                     });
                 } else {
-                    // Production Mode: Inform user to check email
-                    showToast("Registration successful! Verify your email.", "success");
-                    alertBox.className = "text-center text-xs text-emerald-400 min-h-[16px] mt-2 font-medium";
-                    alertBox.innerText = "Please click the activation link sent to your email to verify.";
+                    showToast("Registration successful!", "success");
+                    if (alertBox) {
+                        alertBox.className = "text-center text-xs text-emerald-400 min-h-[16px] mt-2 font-medium";
+                        alertBox.innerText = "Registration complete! You can now sign in.";
+                    }
+                    setAuthMode('login');
                 }
             } else {
-                localStorage.setItem('feynman_token', data.access_token);
-                localStorage.setItem('feynman_user', JSON.stringify(data.user));
+                storage.setItem('feynman_token', data.access_token);
+                storage.setItem('feynman_user', JSON.stringify(data.user));
                 currentUser = data.user;
                 showToast("Successfully logged in!", "success");
                 runOsLoaderSequence(async () => {
@@ -716,15 +820,33 @@ async function handleAuthSubmit(e) {
                 });
             }
         } else {
-            alertBox.className = "text-center text-xs text-red-400 min-h-[16px] mt-2 font-medium";
-            alertBox.innerText = data.detail || "Request failed.";
+            if (alertBox) {
+                alertBox.className = "text-center text-xs text-red-400 min-h-[16px] mt-2 font-medium";
+                alertBox.innerText = data.detail || "Authentication failed.";
+            }
         }
     } catch (err) {
-        alertBox.innerText = "Connection failed.";
+        if (alertBox) {
+            alertBox.className = "text-center text-xs text-red-400 min-h-[16px] mt-2 font-medium";
+            alertBox.innerText = "Connection failed. Please check your network.";
+        }
+    } finally {
+        isAuthSubmitting = false;
+        if (submitBtn) submitBtn.disabled = false;
+        if (guestBtn) guestBtn.disabled = false;
+        if (btnText) btnText.innerText = authMode === 'signup' ? "Create Account" : "Sign In";
+        if (btnIcon) btnIcon.className = "fa-solid fa-arrow-right text-sm";
     }
 }
 
 async function continueAsGuest() {
+    if (isAuthSubmitting) return;
+    isAuthSubmitting = true;
+    const guestBtn = document.getElementById('auth-guest-btn');
+    const submitBtn = document.getElementById('auth-submit-btn');
+    if (guestBtn) guestBtn.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+
     try {
         const response = await fetch(resolveURL('/auth/guest/'), { method: 'POST' });
         const data = await response.json();
@@ -732,22 +854,28 @@ async function continueAsGuest() {
             localStorage.setItem('feynman_token', data.access_token);
             localStorage.setItem('feynman_user', JSON.stringify(data.user));
             currentUser = data.user;
-            showToast("Demo Mode Activated!", "success");
+            showToast("Guest Mode Activated!", "success");
             runOsLoaderSequence(async () => {
                 hideAuthOverlay();
                 await init();
             });
+        } else {
+            throw new Error(data.detail || "Guest login failed.");
         }
     } catch (err) {
-        showToast("Backend connection failed, using browser-local Guest mode.", "success");
-        // Offline / local fallback
+        showToast("Using local Guest mode.", "info");
+        // Local fallback
         localStorage.setItem('feynman_token', 'offline-guest-token');
-        localStorage.setItem('feynman_user', JSON.stringify({ name: "Guest Judge", email: "guest@feynmantutor.local" }));
-        currentUser = { name: "Guest Judge", email: "guest@feynmantutor.local" };
+        localStorage.setItem('feynman_user', JSON.stringify({ name: "Guest Learner", email: "guest@feynmantutor.local" }));
+        currentUser = { name: "Guest Learner", email: "guest@feynmantutor.local" };
         runOsLoaderSequence(async () => {
             hideAuthOverlay();
             await init();
         });
+    } finally {
+        isAuthSubmitting = false;
+        if (guestBtn) guestBtn.disabled = false;
+        if (submitBtn) submitBtn.disabled = false;
     }
 }
 
@@ -755,6 +883,9 @@ function signOut() {
     localStorage.removeItem('feynman_token');
     localStorage.removeItem('feynman_user');
     localStorage.removeItem('feynman_active_session');
+    sessionStorage.removeItem('feynman_token');
+    sessionStorage.removeItem('feynman_user');
+    sessionStorage.removeItem('feynman_active_session');
     currentUser = null;
     currentSessionId = null;
     chatSessions = {};
@@ -1561,21 +1692,28 @@ async function sendMessage() {
         console.log("Exit: currentSessionId is null — no session created yet");
         removeLoadingCard();
         renderMessageUI('system', '### ⚠️ No Active Session\n\nPlease upload a PDF first or create a new study session.', true);
-        sendBtn.disabled = false;
-        sendBtn.innerHTML = '<i class="fa-solid fa-arrow-up"></i>';
+        resetSendBtn();
         return;
     }
 
-    // Abort fetch after 90 seconds to surface a clear timeout error
-    const abortController = new AbortController();
-    const fetchTimeout = setTimeout(() => abortController.abort(), 90000);
+    // Set up AbortController & Stop Button
+    currentAbortController = new AbortController();
+    sendBtn.disabled = false;
+    sendBtn.innerHTML = '<i class="fa-solid fa-stop text-white text-xs"></i>';
+    sendBtn.className = "bg-rose-600 hover:bg-rose-700 text-white w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-all shadow-lg";
+    sendBtn.title = "Stop generating";
+    sendBtn.onclick = stopGenerating;
+
+    const fetchTimeout = setTimeout(() => {
+        if (currentAbortController) currentAbortController.abort();
+    }, 90000);
 
     try {
         console.log("About to call fetchAPI");
         console.log("FETCH START", { session: currentSessionId, message: text });
         const response = await fetchAPI('/tutor-chat/', {
             method: 'POST',
-            signal: abortController.signal,
+            signal: currentAbortController.signal,
             body: JSON.stringify({
                 session_id: currentSessionId,
                 user_message: text,
@@ -1645,7 +1783,9 @@ async function sendMessage() {
         
         let errorMsg;
         if (err.name === 'AbortError') {
-            errorMsg = 'Request timed out after 90 seconds. The Gemini AI is taking too long — please try again.';
+            errorMsg = 'Generation cancelled by user.';
+            showToast("Generation cancelled.", "success");
+            return;
         } else if (err.message && err.message.includes("Session expired")) {
             errorMsg = 'Authentication session expired. Please reload the page and log in again.';
         } else if (err.message && (err.message.includes("Failed to fetch") || err.message.includes("NetworkError") || err.message.includes("fetch"))) {
@@ -1656,10 +1796,31 @@ async function sendMessage() {
         
         renderMessageUI('system', `### ⚠️ Study Pipeline Error\n\n${errorMsg}`, true);
     } finally {
-        sendBtn.disabled = false;
-        sendBtn.innerHTML = '<i class="fa-solid fa-arrow-up"></i>';
+        currentAbortController = null;
+        resetSendBtn();
     }
 }
+
+function resetSendBtn() {
+    const sendBtn = document.getElementById('send-btn');
+    if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<i class="fa-solid fa-arrow-up"></i>';
+        sendBtn.className = "bg-indigo-600 hover:bg-indigo-700 text-white w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-40 disabled:cursor-not-allowed";
+        sendBtn.title = "Send message";
+        sendBtn.onclick = sendMessage;
+    }
+}
+
+function stopGenerating() {
+    if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+    }
+    removeLoadingCard();
+    resetSendBtn();
+}
+
 
 function initFileUpload() {
     const fileUploadEl = document.getElementById('file-upload');
@@ -1947,23 +2108,46 @@ function renderMessageUI(role, text, animate, imageObj = null) {
             const rawSimpleText = data.simple_explanation || (typeof data === 'string' ? data : "");
             const escapedSimpleText = rawSimpleText.replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, ' ');
 
+            const canonicalTopic = data.canonical_topic || "this concept";
+            const mode = data.lesson_mode || "STANDARD";
+            let modeBadge = `<span class="text-[10px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full border border-indigo-500/20 font-mono">🎓 Master Lesson</span>`;
+            if (mode === "SIMPLIFY") {
+                modeBadge = `<span class="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 font-mono">💡 Simplify</span>`;
+            } else if (mode === "ANALOGY") {
+                modeBadge = `<span class="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/20 font-mono">🍕 Analogy</span>`;
+            } else if (mode === "STEP_BY_STEP") {
+                modeBadge = `<span class="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded-full border border-cyan-500/20 font-mono">🪜 Step-by-Step</span>`;
+            }
+
+            div.id = cardUniqueId;
+            div.setAttribute('data-message-id', cardUniqueId);
+            div.setAttribute('data-canonical-topic', canonicalTopic);
+            div.className = "flex gap-4 items-start message-animate-in cursor-default";
+
             div.innerHTML = `
                 <img src="/static/images/feynman_logo.png?v=${APP_VERSION}" alt="Feynman AI" class="w-10 h-10 rounded-2xl object-contain bg-[#1A1F2E] p-1 shadow-lg border border-indigo-500/20 flex-shrink-0">
-                <div class="bg-[#11141A] border border-[#222833] rounded-2xl overflow-hidden shadow-xl max-w-[88%] w-full">
+                <div class="bg-[#11141A] border border-[#222833] rounded-2xl overflow-hidden shadow-xl max-w-[88%] w-full transition-all hover:border-indigo-500/30" onclick="if ('${data.visual_intuition ? '1' : ''}') updateWhiteboardContent('${(data.visual_intuition || '').replace(/'/g, "\\'").replace(/\n/g, '\\n')}');">
                     <div class="px-5 py-3 border-b border-[#222833] flex items-center justify-between bg-[#0B0D12]/40 text-xs">
                         <div class="flex items-center gap-2 font-semibold text-white">
                             <span>Feynman AI</span>
-                            <span class="text-[10px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full border border-indigo-500/20 font-mono">Tutor</span>
+                            ${modeBadge}
                         </div>
                         <div class="flex items-center gap-3 text-gray-400 text-xs font-medium">
-                            <button onclick="copyCardContent('${escapedSimpleText}', this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Copy text">
+                            <button onclick="copyCardContent('${escapedSimpleText}', this); event.stopPropagation();" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Copy text">
                                 <i class="fa-regular fa-copy text-xs"></i> Copy
                             </button>
-                            <button onclick="speakCardText('${escapedSimpleText}', this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Read Aloud">
+                            <button onclick="speakCardText('${escapedSimpleText}', this); event.stopPropagation();" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Read Aloud">
                                 <i class="fa-solid fa-volume-high text-xs"></i> Read
                             </button>
-                            <button onclick="exportNoteMarkdown(this)" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Export Markdown">
+                            <button onclick="exportNoteMarkdown(this); event.stopPropagation();" class="hover:text-white transition-colors flex items-center gap-1 focus:outline-none" title="Export Markdown">
                                 <i class="fa-solid fa-download text-xs"></i> Export
+                            </button>
+                            <span class="text-[#222833]">|</span>
+                            <button onclick="rateCardResponse(this, 'up', '${cardUniqueId}'); event.stopPropagation();" class="feedback-btn hover:text-emerald-400 transition-colors p-1" title="Helpful">
+                                <i class="fa-regular fa-thumbs-up text-xs"></i>
+                            </button>
+                            <button onclick="rateCardResponse(this, 'down', '${cardUniqueId}'); event.stopPropagation();" class="feedback-btn hover:text-rose-400 transition-colors p-1" title="Not helpful">
+                                <i class="fa-regular fa-thumbs-down text-xs"></i>
                             </button>
                         </div>
                     </div>
@@ -1974,15 +2158,15 @@ function renderMessageUI(role, text, animate, imageObj = null) {
 
                     <div class="bg-[#0B0D12]/60 border-t border-[#222833] px-5 py-3 flex items-center justify-between text-xs text-gray-400">
                         <div class="flex items-center gap-2">
-                            <button onclick="triggerQuickPrompt('Explain this concept even simpler')" class="hover:text-white transition-colors bg-[#161B26] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300">
+                            <button onclick="triggerQuickPrompt('Explain ${canonicalTopic.replace(/'/g, "\\'")} simply'); event.stopPropagation();" class="hover:text-white transition-colors bg-[#161B26] hover:bg-[#1E2536] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300">
                                 💡 Simplify
                             </button>
-                            <button onclick="triggerQuickPrompt('Give a real world analogy')" class="hover:text-white transition-colors bg-[#161B26] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300">
+                            <button onclick="triggerQuickPrompt('Give a real-world analogy for ${canonicalTopic.replace(/'/g, "\\'")}'); event.stopPropagation();" class="hover:text-white transition-colors bg-[#161B26] hover:bg-[#1E2536] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300">
                                 🍕 Analogy
                             </button>
                         </div>
-                        <button onclick="triggerQuickPrompt('Teach me step by step until I understand')" class="text-indigo-400 hover:text-indigo-300 font-semibold text-xs flex items-center gap-1 transition-colors">
-                            Teach me step by step →
+                        <button onclick="triggerQuickPrompt('Teach me ${canonicalTopic.replace(/'/g, "\\'")} step by step'); event.stopPropagation();" class="text-indigo-400 hover:text-indigo-300 font-semibold text-xs flex items-center gap-1 transition-colors">
+                            Teach step by step →
                         </button>
                     </div>
                 </div>
@@ -2420,15 +2604,23 @@ function triggerQuickPrompt(promptText) {
     }
 }
 
-function rateCardResponse(btn, rating) {
+function rateCardResponse(btn, rating, cardId) {
+    if (!btn) return;
+    const parent = btn.closest('.flex');
+    if (parent) {
+        parent.querySelectorAll('.feedback-btn').forEach(b => {
+            b.classList.remove('text-emerald-400', 'text-rose-400');
+        });
+    }
     if (rating === 'up') {
-        showToast("Thanks for feedback! Learning model context reinforced.", "success");
-        btn.className = "text-emerald-400 transition-colors p-1.5 rounded hover:bg-[#1A2030]";
+        btn.classList.add('text-emerald-400');
+        showToast("Thanks for the feedback! Tutor model context reinforced.", "success");
     } else {
-        showToast("Feedback noted. Next response will simplify explanations.", "success");
-        btn.className = "text-rose-400 transition-colors p-1.5 rounded hover:bg-[#1A2030]";
+        btn.classList.add('text-rose-400');
+        showToast("Feedback noted. Tutor will provide simpler analogies and breakdown.", "success");
     }
 }
+
 
 // --- MERMAID DIAGRAMS & STREAMING TYPEWRITER HELPERS ---
 function initMermaidDiagrams() {
@@ -2802,21 +2994,23 @@ function renderQuizTab(data) {
     `;
 }
 
-function renderWorkspaceFooter() {
+function renderWorkspaceFooter(data) {
+    const topic = (data && data.canonical_topic) ? data.canonical_topic : "this concept";
     return `
         <div class="bg-[#0B0D12]/60 border-t border-[#222833] px-6 py-3 flex items-center justify-between text-xs text-gray-400">
             <div class="flex items-center gap-3">
-                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Related:</span>
-                <button onclick="triggerQuickPrompt('Explain this concept even simpler')" class="hover:text-white transition-colors">Simplify</button>
+                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Follow up:</span>
+                <button onclick="triggerQuickPrompt('Explain ${topic.replace(/'/g, "\\'")} simply')" class="hover:text-indigo-400 transition-colors font-medium">💡 Simplify</button>
                 <span class="text-[#222833]">•</span>
-                <button onclick="triggerQuickPrompt('Give 3 real world architecture examples of this')" class="hover:text-white transition-colors">Real Examples</button>
+                <button onclick="triggerQuickPrompt('Give a real-world analogy for ${topic.replace(/'/g, "\\'")}')" class="hover:text-indigo-400 transition-colors font-medium">🍕 Analogy</button>
                 <span class="text-[#222833]">•</span>
-                <button onclick="triggerQuickPrompt('Generate 3 active recall flashcards')" class="hover:text-white transition-colors">Flashcards</button>
+                <button onclick="triggerQuickPrompt('Deep dive into ${topic.replace(/'/g, "\\'")}')" class="hover:text-indigo-400 transition-colors font-medium">🔬 Deep Dive</button>
             </div>
-            <button onclick="triggerQuickPrompt('Teach me step by step until I understand')" class="text-[#5B8DEF] hover:underline font-medium text-[11px]">Teach Me Until I Understand →</button>
+            <button onclick="triggerQuickPrompt('Teach me ${topic.replace(/'/g, "\\'")} step by step')" class="text-indigo-400 hover:text-indigo-300 font-medium text-[11px] flex items-center gap-1">Teach Step by Step →</button>
         </div>
     `;
 }
+
 
 // --- PASSWORD RECOVERY & AUTH WORKFLOW ---
 let forgotState = {

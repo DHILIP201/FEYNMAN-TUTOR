@@ -111,37 +111,59 @@ TOPIC_VISUALS_REGISTRY = [
     }
 ]
 
+KNOWN_ACRONYMS = {"Cnn": "CNN", "Rnn": "RNN", "Llm": "LLM", "Gpt": "GPT", "Bert": "BERT", "Sql": "SQL", "Tcp": "TCP", "Dns": "DNS", "Http": "HTTP", "Https": "HTTPS", "Api": "API", "Ram": "RAM", "Cpu": "CPU", "Gpu": "GPU", "Acid": "ACID", "Dp": "DP", "Bfs": "BFS", "Dfs": "DFS", "Ai": "AI", "Ml": "ML"}
+
 def clean_prompt_echo(text: str) -> str:
     """Removes user prompt echoes from generated content strings."""
     if not text:
         return ""
     cleaned = re.sub(
-        r'^(Teach me step by step until I understand|Teach me\s+(.+?)\s+step by step|Explain this concept even simpler|Explain this simpler|Explain\s+(.+?)\s+in simple terms|Give a real[- ]world analogy for|Give a real[- ]world analogy|Tell me about advanced applications of|Tell me about|Understanding how the|Understanding|Explain what is|Explain|What is)\s+',
+        r'^(Teach me step by step until I understand|Teach me\s+(.+?)\s+step by step|Explain this concept even simpler|Explain this simpler|Explain\s+(.+?)\s+in simple terms|Give a real[- ]world analogy for|Give a real[- ]world analogy|Give an analogy for|Tell me about advanced applications of|Tell me about|Understanding how the|Understanding how|Understanding|Explain what is|Explain|What is|What are|How does|How do|Why is|Can you explain|Deep dive into)\s*',
         '',
         text.strip(),
         flags=re.IGNORECASE
     ).strip()
+    cleaned = re.sub(r'^[:\-\s]+', '', cleaned).strip()
     if cleaned and cleaned[0].islower():
         cleaned = cleaned[0].upper() + cleaned[1:]
     return cleaned or text.strip()
 
 def extract_canonical_topic(text: str) -> str:
-    """Isolates the clean canonical subject topic from raw user prompts."""
+    """
+    Isolates the clean canonical subject topic from raw user prompts.
+    Single source of truth across Feynman AI orchestrator, validator, memory, and UI.
+    """
     if not text:
-        return "this concept"
+        return "Core Concept"
+    
+    # Strip common leading prompt templates
     cleaned = re.sub(
-        r'^(Teach me step by step until I understand|Teach me\s+|Explain this concept even simpler|Explain this simpler|Explain\s+|Give a real[- ]world analogy for|Give a real[- ]world analogy|Tell me about advanced applications of|Tell me about|Understanding how the|Understanding|Explain what is|What is|How does\s+)\s*',
+        r'^(Teach me step by step until I understand|Teach me\s+|Explain this concept even simpler|Explain this simpler|Explain\s+|Give a real[- ]world analogy for|Give a real[- ]world analogy|Give an analogy for|Tell me about advanced applications of|Tell me about|Understanding how the|Understanding how|Understanding|Explain what is|What is|What are|How does\s+|How do\s+|Why is\s+|Can you explain\s+|Deep dive into\s+)\s*',
         '',
         text.strip(),
         flags=re.IGNORECASE
     ).strip()
-    # Strip trailing "step by step" or question marks
-    cleaned = re.sub(r'\s+step by step[\?!.]*$', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'[\?\.!\s]+$', '', cleaned).strip()
+    
+    # Strip leading punctuation/colons/dashes
+    cleaned = re.sub(r'^[:\-\s]+', '', cleaned).strip()
+    
+    # Strip trailing prompt modifiers
+    cleaned = re.sub(r'\s+(step by step|in simple terms|simply|with an analogy|until I understand|for beginners)[\?!.]*$', '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'[:\-\?\.!\s]+$', '', cleaned).strip()
     
     if not cleaned or len(cleaned) < 2:
         cleaned = "Core Concept"
-    return cleaned.title() if len(cleaned.split()) <= 4 else (cleaned[0].upper() + cleaned[1:])
+    
+    # Format cleanly
+    if len(cleaned.split()) <= 5:
+        titled = cleaned.title()
+        # Restore acronyms
+        words = [KNOWN_ACRONYMS.get(w, w) for w in titled.split()]
+        return " ".join(words)
+    else:
+        return cleaned[0].upper() + cleaned[1:]
+
+
 
 class ResponseValidator:
     @staticmethod
@@ -163,11 +185,12 @@ class ResponseValidator:
             mode = LessonMode.STEP_BY_STEP
         elif "simplify" in cognitive_trace_lower or "simplify" in str(repaired.get("lesson_mode", "")).lower() or (len(explanation.split()) < 90 and "imagine" in explanation.lower()):
             mode = LessonMode.SIMPLIFY
-        elif "analogy" in cognitive_trace_lower or "analogy" in str(repaired.get("lesson_mode", "")).lower():
+        elif "analogy" in cognitive_trace_lower or "analogy" in str(repaired.get("lesson_mode", "")).lower() or "analogy" in explanation.lower() or "think of a" in explanation.lower():
             mode = LessonMode.ANALOGY
         else:
             mode = LessonMode.STANDARD
         repaired["lesson_mode"] = mode
+
 
         # Clean prompt echo from explanation opening
         explanation = clean_prompt_echo(explanation)

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Command Center | Feynman Tutor AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-display { font-family: 'Outfit', sans-serif; }
+    </style>
+</head>
+<body class="min-h-screen bg-[#080B11] text-gray-200 antialiased selection:bg-indigo-500 selection:text-white">
+    <!-- Top Header -->
+    <header class="border-b border-[#1A2234] bg-[#0E131F]/80 backdrop-blur-md sticky top-0 z-30 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+                <i class="fa-solid fa-bolt"></i>
+            </div>
+            <div>
+                <h1 class="text-base font-bold font-display text-white tracking-tight">Feynman AI Command Center</h1>
+                <p class="text-[11px] text-gray-400">Platform Operations &amp; Gateway Analytics</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="admin-badge" class="hidden px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+                <i class="fa-solid fa-shield-check mr-1"></i> Admin Session
+            </span>
+            <button onclick="adminLogout()" id="logout-btn" class="hidden text-xs text-gray-400 hover:text-white px-3 py-1.5 rounded-lg border border-[#1F293D] hover:bg-[#1A2234] transition-colors">
+                Sign Out
+            </button>
+        </div>
+    </header>
+
+    <!-- Admin Login Modal Overlay -->
+    <div id="login-overlay" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-[#111622] border border-[#1F293D] rounded-3xl p-8 w-full max-w-sm shadow-2xl space-y-5">
+            <div class="text-center">
+                <div class="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto mb-3 text-xl">
+                    <i class="fa-solid fa-lock"></i>
+                </div>
+                <h2 class="text-xl font-bold font-display text-white">Admin Access</h2>
+                <p class="text-xs text-gray-400 mt-1">Enter your admin secret key to proceed</p>
+            </div>
+            <form onsubmit="handleAdminLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Admin Secret</label>
+                    <input type="password" id="admin-secret-input" required class="w-full px-4 py-2.5 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" placeholder="Enter ADMIN_SECRET_KEY">
+                </div>
+                <button type="submit" id="admin-login-btn" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium py-2.5 rounded-xl transition-all text-sm shadow-lg shadow-indigo-500/20">
+                    Unlock Console
+                </button>
+                <div id="login-alert" class="text-center text-xs text-red-400 min-h-[16px]"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Dashboard Container -->
+    <main class="max-w-7xl mx-auto p-6 space-y-6">
+        <!-- Top Metrics Row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-[#111622] border border-[#1F293D] rounded-2xl p-5 shadow-sm">
+                <span class="text-xs text-gray-400 block mb-1">24h Active Learners (DAU)</span>
+                <span id="metric-dau" class="text-2xl font-bold text-white font-display">--</span>
+            </div>
+            <div class="bg-[#111622] border border-[#1F293D] rounded-2xl p-5 shadow-sm">
+                <span class="text-xs text-gray-400 block mb-1">Total Chat Sessions</span>
+                <span id="metric-sessions" class="text-2xl font-bold text-indigo-400 font-display">--</span>
+            </div>
+            <div class="bg-[#111622] border border-[#1F293D] rounded-2xl p-5 shadow-sm">
+                <span class="text-xs text-gray-400 block mb-1">24h Tokens Consumed</span>
+                <span id="metric-tokens" class="text-2xl font-bold text-purple-400 font-display">--</span>
+            </div>
+            <div class="bg-[#111622] border border-[#1F293D] rounded-2xl p-5 shadow-sm">
+                <span class="text-xs text-gray-400 block mb-1">24h Error Rate</span>
+                <span id="metric-errors" class="text-2xl font-bold text-emerald-400 font-display">--%</span>
+            </div>
+        </div>
+
+        <!-- Middle Row: Gemini Gateway Health + Top Weak Spots -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Gateway Status Panel -->
+            <div class="bg-[#111622] border border-[#1F293D] rounded-2xl p-6 shadow-sm space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-bold uppercase tracking-wider text-gray-300">Gemini Gateway Key Pool</h2>
+                    <span id="gateway-model" class="text-xs text-gray-400 font-mono">--</span>
+                </div>
+                <div id="gateway-slots-container" class="space-y-2">
+                    <div class="text-xs text-gray-400">Loading slot status...</div>
+                </div>
+            </div>
+
+            <!-- Top Weak Spots Heatmap -->
+            <div class="bg-[#111622] border border-[#1F293D] rounded-2xl p-6 shadow-sm space-y-4">
+                <h2 class="text-sm font-bold uppercase tracking-wider text-gray-300">Top Learner Misconceptions</h2>
+                <div id="weak-spots-container" class="flex flex-wrap gap-2">
+                    <div class="text-xs text-gray-400">Analyzing learning logs...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Registered Users Table -->
+        <div class="bg-[#111622] border border-[#1F293D] rounded-2xl p-6 shadow-sm space-y-4">
+            <div class="flex items-center justify-between">
+                <h2 class="text-sm font-bold uppercase tracking-wider text-gray-300">Registered Students</h2>
+                <span id="users-count" class="text-xs text-gray-400">Loading...</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs text-gray-300">
+                    <thead class="bg-[#0D111A] text-gray-400 uppercase tracking-wider text-[10px]">
+                        <tr>
+                            <th class="p-3">Student</th>
+                            <th class="p-3">Plan</th>
+                            <th class="p-3">XP</th>
+                            <th class="p-3">Streak</th>
+                            <th class="p-3">Study Time</th>
+                            <th class="p-3">Mastered</th>
+                            <th class="p-3">Joined</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body" class="divide-y divide-[#1F293D]">
+                        <tr><td colspan="7" class="p-4 text-center text-gray-400">Loading students...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let adminToken = localStorage.getItem('feynman_admin_token');
+
+        async function handleAdminLogin(e) {
+            e.preventDefault();
+            const secret = document.getElementById('admin-secret-input').value;
+            const alertBox = document.getElementById('login-alert');
+            alertBox.textContent = '';
+            
+            try {
+                const res = await fetch('/admin/login/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ secret_key: secret })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Login failed');
+                
+                adminToken = data.access_token;
+                localStorage.setItem('feynman_admin_token', adminToken);
+                document.getElementById('login-overlay').classList.add('hidden');
+                document.getElementById('admin-badge').classList.remove('hidden');
+                document.getElementById('logout-btn').classList.remove('hidden');
+                loadDashboardData();
+            } catch (err) {
+                alertBox.textContent = err.message;
+            }
+        }
+
+        function adminLogout() {
+            localStorage.removeItem('feynman_admin_token');
+            adminToken = null;
+            location.reload();
+        }
+
+        async function loadDashboardData() {
+            if (!adminToken) {
+                document.getElementById('login-overlay').classList.remove('hidden');
+                return;
+            }
+            document.getElementById('login-overlay').classList.add('hidden');
+            document.getElementById('admin-badge').classList.remove('hidden');
+            document.getElementById('logout-btn').classList.remove('hidden');
+
+            const headers = { 'Authorization': `Bearer ${adminToken}` };
+
+            // 1. Metrics
+            try {
+                const mRes = await fetch('/admin/metrics/', { headers });
+                if (mRes.status === 403 || mRes.status === 401) return adminLogout();
+                const mData = await mRes.json();
+                document.getElementById('metric-dau').textContent = mData.dau || 0;
+                document.getElementById('metric-sessions').textContent = mData.total_sessions || 0;
+                document.getElementById('metric-tokens').textContent = (mData.total_tokens_24h || 0).toLocaleString();
+                document.getElementById('metric-errors').textContent = `${mData.error_rate_pct || 0}%`;
+
+                // Weak spots
+                const wsBox = document.getElementById('weak-spots-container');
+                if (mData.top_weak_spots && mData.top_weak_spots.length) {
+                    wsBox.innerHTML = mData.top_weak_spots.map(w => 
+                        `<span class="px-3 py-1.5 rounded-xl bg-[#171E2E] border border-indigo-500/20 text-indigo-300 text-xs flex items-center gap-1.5">
+                            <span>${w.weak_spot}</span>
+                            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 font-mono">${w.count}</span>
+                        </span>`
+                    ).join('');
+                } else {
+                    wsBox.innerHTML = `<span class="text-xs text-gray-400">No misconceptions recorded yet.</span>`;
+                }
+            } catch (e) { console.error(e); }
+
+            // 2. Gateway
+            try {
+                const gRes = await fetch('/admin/gateway/', { headers });
+                const gData = await gRes.json();
+                document.getElementById('gateway-model').textContent = gData.model || '';
+                const slotsBox = document.getElementById('gateway-slots-container');
+                if (gData.slots) {
+                    slotsBox.innerHTML = gData.slots.map(s => {
+                        const isHealthy = s.status === 'HEALTHY';
+                        const color = isHealthy ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+                        return `<div class="flex items-center justify-between p-3 rounded-xl bg-[#0D111A] border border-[#1A2234]">
+                            <div class="flex items-center gap-2.5">
+                                <span class="w-2.5 h-2.5 rounded-full ${isHealthy ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}"></span>
+                                <span class="font-semibold text-xs text-white">Slot ${s.slot}</span>
+                            </div>
+                            <div class="flex items-center gap-3 text-[11px]">
+                                <span class="text-gray-400">${s.success_count || 0} reqs</span>
+                                <span class="px-2 py-0.5 rounded-full border text-[10px] font-bold ${color}">${s.status}</span>
+                            </div>
+                        </div>`;
+                    }).join('');
+                }
+            } catch (e) { console.error(e); }
+
+            // 3. Users Table
+            try {
+                const uRes = await fetch('/admin/users/?page=1&limit=20', { headers });
+                const uData = await uRes.json();
+                document.getElementById('users-count').textContent = `Showing ${uData.users.length} of ${uData.total} learners`;
+                const tbody = document.getElementById('users-table-body');
+                if (uData.users && uData.users.length) {
+                    tbody.innerHTML = uData.users.map(u => `
+                        <tr class="hover:bg-[#151C2C]/50 transition-colors">
+                            <td class="p-3">
+                                <div class="font-semibold text-white">${u.name}</div>
+                                <div class="text-[10px] text-gray-400 font-mono">${u.email}</div>
+                            </td>
+                            <td class="p-3"><span class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${u.plan === 'pro' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-gray-800 text-gray-300'}">${u.plan}</span></td>
+                            <td class="p-3 font-semibold text-amber-400">${u.xp}</td>
+                            <td class="p-3 font-semibold text-orange-400">${u.streak}d</td>
+                            <td class="p-3 text-gray-300">${u.study_minutes}m</td>
+                            <td class="p-3 font-semibold text-emerald-400">${u.mastered_topics}</td>
+                            <td class="p-3 text-gray-400 text-[10px]">${u.created_at ? u.created_at.split('T')[0] : '--'}</td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        if (adminToken) loadDashboardData();
+    </script>
+</body>
+</html>

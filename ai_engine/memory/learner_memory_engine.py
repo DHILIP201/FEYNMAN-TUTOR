@@ -106,7 +106,6 @@ FOUNDATIONAL_KNOWLEDGE_EDGES = [
     {"source_topic": "Newton's Laws", "target_topic": "Momentum", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
     {"source_topic": "Work & Energy", "target_topic": "Thermodynamics", "relationship_type": "RELATED_TO", "weight": 0.7},
     {"source_topic": "Electricity", "target_topic": "Magnetism", "relationship_type": "PREREQUISITE_OF", "weight": 1.0},
-    {"source_topic": "Quantum Mechanics", "target_topic": "Quantum Mechanics", "relationship_type": "RELATED_TO", "weight": 0.1},  # self-ref placeholder avoided below
 
     # ─── Cross-subject prerequisite edges ───────────────────────────
     # Physics uses Calculus (Kinematics → Derivatives; force = ma → Newton's Laws need Derivatives)
