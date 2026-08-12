@@ -131,6 +131,28 @@
     <script>
         let adminToken = localStorage.getItem('feynman_admin_token');
 
+        const API_BASE_URL = (function() {
+            if (typeof window !== 'undefined' && window.ENV_API_URL) return window.ENV_API_URL.replace(/\/+$/, '');
+            if (typeof window !== 'undefined') {
+                const hostname = window.location.hostname;
+                if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                    if (window.location.port && window.location.port !== '8000') return 'http://127.0.0.1:8000';
+                    return '';
+                }
+                if (hostname.endsWith('.vercel.app') || window.location.protocol === 'file:') {
+                    return 'https://feynman-tutor.onrender.com';
+                }
+            }
+            return '';
+        })();
+
+        function resolveAdminURL(endpoint) {
+            if (!endpoint) return '';
+            if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) return endpoint;
+            const clean = endpoint.startsWith('/') ? endpoint : '/' + endpoint;
+            return API_BASE_URL ? `${API_BASE_URL}${clean}` : clean;
+        }
+
         async function handleAdminLogin(e) {
             e.preventDefault();
             const secret = document.getElementById('admin-secret-input').value;
@@ -138,7 +160,7 @@
             alertBox.textContent = '';
             
             try {
-                const res = await fetch('/admin/login/', {
+                const res = await fetch(resolveAdminURL('/admin/login/'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ secret_key: secret })
@@ -176,7 +198,7 @@
 
             // 1. Metrics
             try {
-                const mRes = await fetch('/admin/metrics/', { headers });
+                const mRes = await fetch(resolveAdminURL('/admin/metrics/'), { headers });
                 if (mRes.status === 403 || mRes.status === 401) return adminLogout();
                 const mData = await mRes.json();
                 document.getElementById('metric-dau').textContent = mData.dau || 0;
@@ -200,7 +222,7 @@
 
             // 2. Gateway
             try {
-                const gRes = await fetch('/admin/gateway/', { headers });
+                const gRes = await fetch(resolveAdminURL('/admin/gateway/'), { headers });
                 const gData = await gRes.json();
                 document.getElementById('gateway-model').textContent = gData.model || '';
                 const slotsBox = document.getElementById('gateway-slots-container');
@@ -224,7 +246,8 @@
 
             // 3. Users Table
             try {
-                const uRes = await fetch('/admin/users/?page=1&limit=20', { headers });
+                const uRes = await fetch(resolveAdminURL('/admin/users/?page=1&limit=20'), { headers });
+
                 const uData = await uRes.json();
                 document.getElementById('users-count').textContent = `Showing ${uData.users.length} of ${uData.total} learners`;
                 const tbody = document.getElementById('users-table-body');

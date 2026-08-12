@@ -29,13 +29,36 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// --- HELPER: RESOLVE URL ON NON-8000 PORTS ---
-function resolveURL(endpoint) {
-    if (window.location.protocol === 'file:' || (window.location.port && window.location.port !== '8000')) {
-        return 'http://127.0.0.1:8000' + endpoint;
+// --- CENTRALIZED API BASE URL & RESOLVER ---
+const API_BASE_URL = (function() {
+    if (typeof window !== 'undefined' && window.ENV_API_URL) {
+        return window.ENV_API_URL.replace(/\/+$/, '');
     }
-    return endpoint;
+    if (typeof window !== 'undefined') {
+        const hostname = window.location.hostname;
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            if (window.location.port && window.location.port !== '8000') {
+                return 'http://127.0.0.1:8000';
+            }
+            return '';
+        }
+        // When running on Vercel or any external frontend, route API requests to Render backend
+        if (hostname.endsWith('.vercel.app') || window.location.protocol === 'file:') {
+            return 'https://feynman-tutor.onrender.com';
+        }
+    }
+    return '';
+})();
+
+function resolveURL(endpoint) {
+    if (!endpoint) return '';
+    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+        return endpoint;
+    }
+    const clean = endpoint.startsWith('/') ? endpoint : '/' + endpoint;
+    return API_BASE_URL ? `${API_BASE_URL}${clean}` : clean;
 }
+
 
 async function fetchAPI(endpoint, options = {}) {
     const token = localStorage.getItem('feynman_token');
@@ -3096,7 +3119,7 @@ async function sendPasswordResetCode() {
     }
     
     try {
-        const res = await fetch('/auth/forgot-password/', {
+        const res = await fetch(resolveURL('/auth/forgot-password/'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email })
@@ -3193,7 +3216,7 @@ async function verifyPasswordResetCode() {
     }
     
     try {
-        const res = await fetch('/auth/verify-otp/', {
+        const res = await fetch(resolveURL('/auth/verify-otp/'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: forgotState.email, otp })
@@ -3301,7 +3324,7 @@ async function submitNewPassword() {
     }
     
     try {
-        const res = await fetch('/auth/reset-password/', {
+        const res = await fetch(resolveURL('/auth/reset-password/'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -3330,6 +3353,7 @@ async function submitNewPassword() {
         }
     }
 }
+
 
 // Boot the application
 init();

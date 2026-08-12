@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feynman Tutor AI — Learning OS</title>
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="/static/images/feynman_logo.png">
+    <link rel="apple-touch-icon" href="/static/images/feynman_logo.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="h-screen w-screen flex bg-[#0A0D14] text-gray-200 overflow-hidden font-sans antialiased relative">
+    
+    <!-- ==================== MAIN AUTHENTICATION OVERLAY ==================== -->
+    <div id="auth-overlay" class="absolute inset-0 bg-[#07090E]/85 backdrop-blur-xl z-50 flex items-center justify-center p-4 pointer-events-auto">
+        <div class="bg-[#111622] rounded-3xl p-8 w-full max-w-[560px] border border-[#1F293D]/60 shadow-2xl relative">
+            
+            <!-- Auth Form Content -->
+            <div id="auth-inner-content" class="space-y-6">
+                <div class="text-center">
+                    <div class="w-14 h-14 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center text-white shadow-lg mx-auto mb-4 shadow-indigo-500/25">
+                        <i class="fa-solid fa-graduation-cap text-2xl"></i>
+                    </div>
+                    <h2 id="auth-title" class="text-2xl font-bold font-display text-white tracking-tight">Feynman Tutor AI</h2>
+                    <p id="auth-sub" class="text-gray-400 text-sm mt-1">The personal AI Learning Operating System.</p>
+                </div>
+
+                <!-- Tab Toggles -->
+                <div class="flex border-b border-[#1F293D]">
+                    <button type="button" id="tab-login" onclick="setAuthMode('login')" class="flex-1 py-2.5 text-center font-semibold text-indigo-400 border-b-2 border-indigo-500 cursor-pointer focus:outline-none transition-colors">Sign In</button>
+                    <button type="button" id="tab-signup" onclick="setAuthMode('signup')" class="flex-1 py-2.5 text-center font-semibold text-gray-400 border-b-2 border-transparent hover:text-gray-200 cursor-pointer focus:outline-none transition-colors">Register</button>
+                </div>
+
+                <!-- Form Inputs -->
+                <div class="space-y-4">
+                    <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4" novalidate>
+                        <div id="auth-name-field" class="hidden">
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Full Name</label>
+                            <input type="text" id="auth-name" class="w-full px-4 py-3 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-gray-600 text-sm" placeholder="Enter your full name" autocomplete="name">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Email Address</label>
+                            <input type="email" id="auth-email" required class="w-full px-4 py-3 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-gray-600 text-sm" placeholder="Enter your email" autocomplete="email">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Password</label>
+                            <div class="relative">
+                                <input type="password" id="auth-password" required class="w-full px-4 py-3 pr-10 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-gray-600 text-sm" placeholder="Enter your password" autocomplete="current-password">
+                                <button type="button" onclick="togglePasswordVisibility('auth-password', this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors focus:outline-none" aria-label="Toggle password visibility">
+                                    <i class="fa-regular fa-eye text-sm"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Confirm Password (Register mode only) -->
+                        <div id="auth-confirm-password-field" class="hidden">
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Confirm Password</label>
+                            <div class="relative">
+                                <input type="password" id="auth-confirm-password" class="w-full px-4 py-3 pr-10 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-gray-600 text-sm" placeholder="Confirm your password" autocomplete="new-password">
+                                <button type="button" onclick="togglePasswordVisibility('auth-confirm-password', this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors focus:outline-none" aria-label="Toggle password visibility">
+                                    <i class="fa-regular fa-eye text-sm"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Remember Me & Forgot Password (Sign In mode) -->
+                        <div id="auth-options-row" class="flex items-center justify-between text-xs mt-2.5">
+                            <label class="flex items-center gap-2 text-gray-400 cursor-pointer select-none">
+                                <input type="checkbox" id="auth-remember" class="w-3.5 h-3.5 rounded bg-[#0D111A] border-[#1F293D] text-indigo-500 focus:ring-0 cursor-pointer" checked>
+                                <span>Remember me</span>
+                            </label>
+                            <button type="button" onclick="openForgotPasswordModal()" class="text-indigo-400 hover:text-indigo-300 font-medium transition-colors focus:outline-none">Forgot Password?</button>
+                        </div>
+                        
+                        <button type="submit" id="auth-submit-btn" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/20 flex justify-center items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                            <span id="auth-btn-text">Sign In</span>
+                            <i id="auth-btn-icon" class="fa-solid fa-arrow-right text-sm"></i>
+                        </button>
+                    </form>
+
+                    <div class="relative flex py-2 items-center">
+                        <div class="flex-grow border-t border-[#1F293D]"></div>
+                        <span class="flex-shrink mx-4 text-gray-500 text-xs uppercase tracking-widest font-semibold">Or</span>
+                        <div class="flex-grow border-t border-[#1F293D]"></div>
+                    </div>
+
+                    <!-- Guest Mode Button -->
+                    <button type="button" id="auth-guest-btn" onclick="continueAsGuest()" class="w-full bg-[#1A2030] hover:bg-[#232B40] text-indigo-300 border border-indigo-500/20 font-semibold py-3.5 rounded-xl transition-all flex justify-center items-center gap-2 group cursor-pointer disabled:opacity-50">
+                        <span>Continue as Guest</span>
+                        <i class="fa-solid fa-bolt text-amber-400 group-hover:scale-125 transition-transform"></i>
+                    </button>
+                    
+                    <div id="auth-alert" class="text-center text-xs text-red-400 min-h-[16px] mt-2 font-medium"></div>
+                </div>
+            </div>
+            
+            <!-- Magical OS Loading Sequence -->
+            <div id="os-loader" class="hidden flex flex-col items-center justify-center p-4 text-center space-y-4">
+                <div class="w-12 h-12 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin mb-2"></div>
+                <h3 class="text-white font-bold font-display text-sm">Building your Learning Workspace...</h3>
+                <div id="loader-steps" class="space-y-2 text-xs font-mono text-gray-400 text-left w-52 max-w-full">
+                    <!-- Dynamically populated steps -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- FORGOT PASSWORD WORKFLOW MODAL -->
+    <!-- ============================================================================== -->
+    <div id="forgot-password-modal" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 hidden transition-all duration-200">
+        <div class="bg-[#11141A] border border-[#222833] w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-6 relative overflow-hidden">
+            <!-- Modal Close Button -->
+            <button onclick="closeForgotPasswordModal()" class="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors focus:outline-none">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <!-- STEP 1: ENTER EMAIL -->
+            <div id="forgot-step-1" class="space-y-4">
+                <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 text-lg">
+                    <i class="fa-solid fa-key"></i>
+                </div>
+                <div>
+                    <h3 class="text-white font-bold text-lg">Forgot your password?</h3>
+                    <p class="text-gray-400 text-xs mt-1 leading-relaxed">Enter the email address associated with your account. We'll send a 6-digit verification code to reset your password.</p>
+                </div>
+                <div class="space-y-3 pt-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Email Address</label>
+                        <input type="email" id="forgot-email" class="w-full px-4 py-3 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm placeholder:text-gray-600" placeholder="Enter your email">
+                    </div>
+                    <button onclick="sendPasswordResetCode()" id="forgot-send-btn" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold py-3 rounded-xl transition-all text-sm flex items-center justify-center gap-2">
+                        <span>Send Verification Code</span>
+                        <i class="fa-solid fa-paper-plane text-xs"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- STEP 2: VERIFY CODE -->
+            <div id="forgot-step-2" class="hidden space-y-4">
+                <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 text-lg">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
+                <div>
+                    <h3 class="text-white font-bold text-lg">Enter Verification Code</h3>
+                    <p class="text-gray-400 text-xs mt-1 leading-relaxed">We sent a 6-digit security code to <strong id="forgot-sent-email" class="text-gray-200"></strong>.</p>
+                </div>
+                <div class="space-y-4 pt-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 text-center">6-Digit Verification Code</label>
+                        <!-- 6-Box Grid Input -->
+                        <div class="flex gap-2 justify-center" onpaste="handleOtpPaste(event)">
+                            <input type="text" maxlength="1" inputmode="numeric" class="otp-box w-11 h-12 text-center text-xl font-bold bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono" onkeyup="handleOtpInput(this, event, 0)">
+                            <input type="text" maxlength="1" inputmode="numeric" class="otp-box w-11 h-12 text-center text-xl font-bold bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono" onkeyup="handleOtpInput(this, event, 1)">
+                            <input type="text" maxlength="1" inputmode="numeric" class="otp-box w-11 h-12 text-center text-xl font-bold bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono" onkeyup="handleOtpInput(this, event, 2)">
+                            <input type="text" maxlength="1" inputmode="numeric" class="otp-box w-11 h-12 text-center text-xl font-bold bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono" onkeyup="handleOtpInput(this, event, 3)">
+                            <input type="text" maxlength="1" inputmode="numeric" class="otp-box w-11 h-12 text-center text-xl font-bold bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono" onkeyup="handleOtpInput(this, event, 4)">
+                            <input type="text" maxlength="1" inputmode="numeric" class="otp-box w-11 h-12 text-center text-xl font-bold bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono" onkeyup="handleOtpInput(this, event, 5)">
+                        </div>
+                    </div>
+                    <button onclick="verifyPasswordResetCode()" id="forgot-verify-btn" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold py-3 rounded-xl transition-all text-sm flex items-center justify-center gap-2">
+                        <span>Verify Code</span>
+                        <i class="fa-solid fa-circle-check text-xs"></i>
+                    </button>
+                    <div class="flex items-center justify-between text-xs text-gray-400 pt-1">
+                        <span>Didn't receive code?</span>
+                        <button onclick="resendPasswordResetCode()" id="forgot-resend-btn" disabled class="text-indigo-400 disabled:text-gray-600 hover:underline font-medium focus:outline-none">
+                            Resend Code (<span id="resend-timer">60</span>s)
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STEP 3: RESET PASSWORD -->
+            <div id="forgot-step-3" class="hidden space-y-4">
+                <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 text-lg">
+                    <i class="fa-solid fa-lock"></i>
+                </div>
+                <div>
+                    <h3 class="text-white font-bold text-lg">Set New Password</h3>
+                    <p class="text-gray-400 text-xs mt-1">Create a strong password for your Feynman Learning account.</p>
+                </div>
+                <div class="space-y-3 pt-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">New Password</label>
+                        <div class="relative">
+                            <input type="password" id="forgot-new-password" oninput="checkResetPasswordStrength(this.value)" class="w-full px-4 py-3 pr-10 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 text-sm outline-none" placeholder="••••••••">
+                            <button type="button" onclick="togglePasswordVisibility('forgot-new-password', this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors focus:outline-none">
+                                <i class="fa-regular fa-eye text-sm"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Password Strength Indicator & Live Checklist -->
+                        <div class="mt-2 space-y-2">
+                            <div class="flex h-1.5 w-full bg-[#0D111A] rounded-full overflow-hidden border border-[#1F293D]">
+                                <div id="pw-strength-bar" class="h-full w-0 transition-all duration-300 bg-rose-500"></div>
+                            </div>
+                            <div class="flex items-center justify-between text-[10px] text-gray-500">
+                                <span>Strength</span>
+                                <span id="pw-strength-label" class="font-semibold text-rose-400">Too Short</span>
+                            </div>
+                            <!-- Live Requirement Checklist -->
+                            <div class="grid grid-cols-2 gap-1.5 text-[11px] text-gray-400 pt-1">
+                                <div id="req-len" class="flex items-center gap-1.5"><i class="fa-solid fa-circle-xmark text-rose-400 text-[10px]"></i> <span>8+ characters</span></div>
+                                <div id="req-upper" class="flex items-center gap-1.5"><i class="fa-solid fa-circle-xmark text-rose-400 text-[10px]"></i> <span>Uppercase (A-Z)</span></div>
+                                <div id="req-lower" class="flex items-center gap-1.5"><i class="fa-solid fa-circle-xmark text-rose-400 text-[10px]"></i> <span>Lowercase (a-z)</span></div>
+                                <div id="req-num" class="flex items-center gap-1.5"><i class="fa-solid fa-circle-xmark text-rose-400 text-[10px]"></i> <span>Number (0-9)</span></div>
+                                <div id="req-special" class="col-span-2 flex items-center gap-1.5"><i class="fa-solid fa-circle-xmark text-rose-400 text-[10px]"></i> <span>Special char (!@#$)</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Confirm New Password</label>
+                        <div class="relative">
+                            <input type="password" id="forgot-confirm-password" class="w-full px-4 py-3 pr-10 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 text-sm outline-none" placeholder="••••••••">
+                            <button type="button" onclick="togglePasswordVisibility('forgot-confirm-password', this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors focus:outline-none">
+                                <i class="fa-regular fa-eye text-sm"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Confirm New Password</label>
+                        <input type="password" id="forgot-confirm-password" class="w-full px-4 py-3 bg-[#0D111A] border border-[#1F293D] rounded-xl text-white focus:ring-2 focus:ring-indigo-500 text-sm outline-none" placeholder="••••••••">
+                    </div>
+
+                    <button onclick="submitNewPassword()" id="forgot-reset-btn" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold py-3 rounded-xl transition-all text-sm flex items-center justify-center gap-2">
+                        <span>Reset Password</span>
+                        <i class="fa-solid fa-arrow-right text-xs"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- SUCCESS STEP -->
+            <div id="forgot-step-success" class="hidden text-center py-4 space-y-4">
+                <div class="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-2xl mx-auto animate-bounce">
+                    <i class="fa-solid fa-circle-check"></i>
+                </div>
+                <div>
+                    <h3 class="text-white font-bold text-lg">Password Reset Complete!</h3>
+                    <p class="text-gray-400 text-xs mt-1">Your password has been updated successfully. Redirecting to login...</p>
+                </div>
+                <button onclick="closeForgotPasswordModal()" class="w-full bg-[#161B26] hover:bg-[#1E2536] text-white font-medium py-3 rounded-xl border border-[#222833] text-sm transition-colors">
+                    Back to Login
+                </button>
+            </div>
+
+            <!-- Modal Alert Banner -->
+            <div id="forgot-modal-alert" class="text-center text-xs min-h-[16px] font-medium hidden"></div>
+        </div>
+    </div>
+    <!-- ============================================================================== -->
+
+    <!-- Sidebar -->
+    <aside class="w-72 bg-[#0C0F17] border-r border-[#1B2233] flex flex-col flex-shrink-0 z-20">
+        <!-- Sidebar Header -->
+        <div class="p-6 pb-4">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-indigo-500/10">
+                        <i class="fa-solid fa-graduation-cap text-lg"></i>
+                    </div>
+                    <span class="font-bold font-display text-white text-lg tracking-tight">Feynman AI</span>
+                </div>
+                <span class="text-[9px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-widest">OS v1.0</span>
+            </div>
+            
+            <button onclick="createNewChat()" class="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:opacity-90 text-white px-4 py-3 rounded-xl shadow-md text-sm font-semibold transition-all group">
+                <i class="fa-solid fa-plus group-hover:rotate-90 transition-all"></i> New study session
+            </button>
+        </div>
+
+        <!-- Sidebar Navigation Shortcuts -->
+        <div class="px-4 mb-4">
+            <nav class="space-y-1">
+                <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-indigo-400 bg-indigo-500/10 transition-all text-left">
+                    <i class="fa-solid fa-chart-line w-4"></i> Learning Dashboard
+                </button>
+                <button onclick="switchTab('chat')" id="nav-chat" class="nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-400 hover:bg-[#1B2233] hover:text-white transition-all text-left">
+                    <i class="fa-solid fa-book-open w-4"></i> Feynman Tutoring
+                </button>
+            </nav>
+        </div>
+        
+        <!-- Pinned / Recent Conversations -->
+        <div class="flex-1 overflow-y-auto px-4 pb-4 scrollbar-thin">
+            <div class="flex items-center justify-between px-2 mb-2">
+                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Recent Sessions</span>
+                <i class="fa-solid fa-folder-open text-gray-600 text-xs"></i>
+            </div>
+            <ul id="history-list" class="space-y-1">
+                <!-- Session items populated via JS -->
+            </ul>
+        </div>
+        
+        <!-- User Profile Card -->
+        <div class="p-4 border-t border-[#1B2233] bg-[#0E121C]">
+            <div id="user-profile-card" class="flex items-center justify-between group">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="w-9 h-9 bg-gradient-to-tr from-indigo-500/20 to-purple-600/20 border border-indigo-500/20 text-indigo-400 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0" id="user-avatar">
+                        U
+                    </div>
+                    <div class="flex flex-col truncate">
+                        <span class="text-sm font-semibold text-white truncate" id="user-name">Loading...</span>
+                        <span class="text-[11px] text-gray-500 truncate" id="user-email">...</span>
+                    </div>
+                </div>
+                <button onclick="signOut()" class="text-gray-500 hover:text-red-400 transition-colors p-2 rounded-lg" title="Sign Out">
+                    <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col relative h-full w-full bg-[#080B12]">
+        
+        <!-- Header / Mastery Status Bar -->
+        <header class="h-16 border-b border-[#1B2233] px-8 flex items-center justify-between flex-shrink-0 bg-[#0A0D15]/80 backdrop-blur-md z-10">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-graduation-cap text-indigo-500"></i>
+                <span id="header-doc-title" class="font-semibold text-white truncate max-w-sm font-display">Feynman Learning System</span>
+                <button id="open-pdf-btn" onclick="openSessionPDF()" class="hidden text-xs bg-[#1A2030] hover:bg-[#232B40] text-red-400 border border-red-500/20 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 focus:outline-none transition-colors ml-2" title="View Source PDF">
+                    <i class="fa-solid fa-file-pdf"></i> View Source Document
+                </button>
+            </div>
+            
+            <div class="flex items-center gap-6">
+                <!-- Study Mode Selection -->
+                <div class="hidden flex items-center gap-2 bg-[#0E1320] border border-[#1F293D] rounded-xl px-3 py-1.5">
+                    <span class="text-xs text-gray-400 font-semibold">Mode:</span>
+                    <select id="study-mode-select" onchange="changeStudyMode(this.value)" class="bg-transparent text-xs text-white outline-none font-bold cursor-pointer">
+                        <option value="Focus">Focus Mode</option>
+                        <option value="Exam">Exam Mode</option>
+                        <option value="Practice">Practice Mode</option>
+                        <option value="Revision">Revision Mode</option>
+                        <option value="Interview">Interview Mode</option>
+                    </select>
+                </div>
+                
+                <!-- Mastery Ring -->
+                <div class="flex items-center gap-3 bg-[#0E1320] border border-[#1F293D] px-4 py-1.5 rounded-xl shadow-sm">
+                    <span class="text-xs font-semibold text-gray-400">Mastery</span>
+                    <div class="w-24 h-2 bg-[#1B2233] rounded-full overflow-hidden">
+                        <div id="mastery-bar" class="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
+                    </div>
+                    <span id="mastery-text" class="text-xs font-bold text-amber-400">0%</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dynamic Main Panes -->
+        <div class="flex-1 w-full relative overflow-hidden">
+            
+            <!-- TAB 1: LEARNING DASHBOARD -->
+            <div id="pane-dashboard" class="absolute inset-0 overflow-y-auto p-8 space-y-8 scrollbar-thin">
+                
+                <!-- Welcome Section -->
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h2 id="dashboard-greeting" class="text-3xl font-extrabold font-display text-white tracking-tight">Good morning, Student!</h2>
+                        <p id="dashboard-quote" class="text-gray-400 text-sm mt-1">"Simple explanations reveal deep gaps." — Keep your learning streak going today.</p>
+                    </div>
+                    <!-- Streak Tag -->
+                    <div class="flex items-center gap-3 bg-gradient-to-tr from-amber-500/10 to-orange-500/10 border border-amber-500/20 px-4 py-2.5 rounded-2xl shadow-sm">
+                        <i class="fa-solid fa-fire text-amber-500 text-xl animate-bounce"></i>
+                        <div>
+                            <div id="streak-count" class="text-lg font-extrabold text-white leading-none">7 Days</div>
+                            <div class="text-[10px] text-gray-400 uppercase tracking-widest font-semibold mt-0.5">Current Streak</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Analytics Metrics Dashboard -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div class="bg-[#0E1320] border border-[#1F293D] p-5 rounded-2xl relative overflow-hidden group hover:border-indigo-500/40 transition-all duration-300">
+                        <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Focus Time Today</div>
+                        <div id="stat-focus-time" class="text-2xl font-extrabold text-white font-display">42 Min</div>
+                        <div class="text-xs text-indigo-400 mt-2 font-medium"><i class="fa-solid fa-circle-play mr-1"></i> Target: 60 mins</div>
+                    </div>
+                    <div class="bg-[#0E1320] border border-[#1F293D] p-5 rounded-2xl relative overflow-hidden group hover:border-indigo-500/40 transition-all duration-300">
+                        <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Quiz Accuracy</div>
+                        <div id="stat-quiz-accuracy" class="text-2xl font-extrabold text-white font-display">84%</div>
+                        <div class="text-xs text-emerald-400 mt-2 font-medium"><i class="fa-solid fa-chevron-up mr-1"></i> +4% since yesterday</div>
+                    </div>
+                    <div class="bg-[#0E1320] border border-[#1F293D] p-5 rounded-2xl relative overflow-hidden group hover:border-indigo-500/40 transition-all duration-300">
+                        <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">XP Gained</div>
+                        <div id="stat-xp" class="text-2xl font-extrabold text-white font-display">2,850 XP</div>
+                        <div class="text-xs text-amber-500 mt-2 font-medium"><i class="fa-solid fa-award mr-1"></i> Level 5 Active Learner</div>
+                    </div>
+                    <div class="bg-[#0E1320] border border-[#1F293D] p-5 rounded-2xl relative overflow-hidden group hover:border-indigo-500/40 transition-all duration-300">
+                        <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Retention Index</div>
+                        <div id="stat-retention" class="text-2xl font-extrabold text-white font-display">High (92%)</div>
+                        <div class="text-xs text-purple-400 mt-2 font-medium"><i class="fa-solid fa-brain mr-1"></i> Predicted memory lock</div>
+                    </div>
+                </div>
+
+                <!-- WHAT SHOULD I LEARN NEXT? (Adaptive AI Learning OS Recommendation) -->
+                <div id="recommendation-banner" class="bg-gradient-to-r from-indigo-950/60 via-[#0E1320] to-purple-950/40 border border-indigo-500/40 p-6 rounded-3xl relative overflow-hidden shadow-2xl">
+                    <div class="absolute -right-10 -bottom-10 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-2">
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                                    <i class="fa-solid fa-compass mr-1"></i> What Should I Learn Next?
+                                </span>
+                                <span id="rec-urgency-badge" class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 hidden">High Priority</span>
+                            </div>
+                            <h3 id="rec-action-title" class="text-xl font-extrabold text-white font-display">Prerequisite Diagnosis Active</h3>
+                            <p id="rec-action-reason" class="text-sm text-gray-300 max-w-2xl leading-relaxed">
+                                Analyzing your conceptual knowledge graph and recent mastery signals to chart your optimal learning path.
+                            </p>
+                        </div>
+                        <button id="rec-action-btn" onclick="startRecommendedLesson()" class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3 px-6 rounded-2xl shadow-lg hover:shadow-indigo-500/25 transition-all text-xs flex items-center gap-2 shrink-0">
+                            <i class="fa-solid fa-play"></i> <span id="rec-btn-text">Start Recommended Lesson</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <!-- Main Columns: Roadmap & Graph -->
+                    <div class="lg:col-span-2 space-y-8">
+                        <!-- Visual Knowledge Roadmap -->
+                        <div class="bg-[#0C0F17] border border-[#1B2233] p-6 rounded-3xl relative">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-bold text-white text-lg font-display flex items-center gap-2">
+                                    <i class="fa-solid fa-diagram-project text-indigo-500"></i> Interactive Knowledge Map
+                                </h3>
+                                <div class="flex items-center gap-2 text-[10px] font-semibold text-gray-400">
+                                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Mastered</span>
+                                    <span class="flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-amber-500"></span> In Progress</span>
+                                    <span class="flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-rose-500"></span> Needs Review</span>
+                                    <span class="flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-gray-600"></span> Not Started</span>
+                                </div>
+                            </div>
+                            <div class="relative w-full overflow-x-auto py-4 flex flex-wrap items-center justify-start gap-3 min-h-[140px] bg-[#07090E]/60 border border-[#1B2233] rounded-2xl p-4" id="roadmap-container">
+                                <!-- Nodes rendered dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Spaced Repetition Timeline & Study Planner -->
+                        <div class="bg-[#0C0F17] border border-[#1B2233] p-6 rounded-3xl">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-bold text-white text-lg font-display flex items-center gap-2">
+                                    <i class="fa-solid fa-repeat text-indigo-500"></i> Today's Spaced Repetition Reviews
+                                </h3>
+                                <span id="due-review-count-badge" class="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-bold">0 Due</span>
+                            </div>
+                            <div class="space-y-4" id="study-planner-container">
+                                <!-- Planner items dynamically injected -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Coach & Stats -->
+                    <div class="space-y-8">
+                        <!-- AI Coach Panel (Dashboard widget) -->
+                        <div class="bg-gradient-to-b from-[#161B2B] to-[#0E121E] border border-indigo-500/30 p-6 rounded-3xl relative shadow-lg">
+                            <div class="absolute top-4 right-4 w-2 h-2 bg-indigo-500 rounded-full animate-ping"></div>
+                            <h3 class="font-bold text-white text-lg mb-3 font-display flex items-center gap-2">
+                                <i class="fa-solid fa-user-ninja text-indigo-400"></i> AI Coach Diagnostics
+                            </h3>
+                            <div class="space-y-4">
+                                <p id="coach-dashboard-tip" class="text-sm text-gray-300 leading-relaxed font-medium">
+                                    "Your foundational models are synchronizing. Complete active recall checks to unlock fine-grained cognitive suggestions."
+                                </p>
+                                <div class="bg-[#07090E]/80 border border-[#1B2233] p-3.5 rounded-xl">
+                                    <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Detected Weak Spots</div>
+                                    <div class="flex flex-wrap gap-2 mt-2" id="weak-concepts-list">
+                                        <!-- badges injected -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Study calendar heat map simulator -->
+                        <div class="bg-[#0C0F17] border border-[#1B2233] p-6 rounded-3xl">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-bold text-white text-sm font-display uppercase tracking-wider text-gray-400">Study Frequency Calendar</h3>
+                                <span class="text-[10px] text-gray-500 font-bold">28 days tracking</span>
+                            </div>
+                            <div class="grid grid-cols-7 gap-2.5 justify-items-center" id="heatmap-calendar">
+                                <!-- heat map blocks dynamically generated -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="pane-chat" class="absolute inset-0 flex flex-row hidden min-h-0">
+                
+                <!-- Drag and Drop Overlay -->
+                <div id="drag-drop-overlay" class="hidden absolute inset-0 bg-[#07090E]/90 backdrop-blur-md border-4 border-dashed border-indigo-500 rounded-3xl z-40 flex flex-col items-center justify-center text-center space-y-4 pointer-events-none transition-all duration-300">
+                    <div class="w-16 h-16 bg-indigo-500/20 text-indigo-400 rounded-full flex items-center justify-center text-3xl animate-bounce">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                    </div>
+                    <h3 class="text-white font-bold font-display text-lg">Drop your PDF study material here</h3>
+                    <p class="text-xs text-indigo-300">Feynman Learning OS will parse and index it page-by-page.</p>
+                </div>
+                
+                <!-- Chat Scroll Wrapper -->
+                <div class="flex-1 flex flex-col relative h-full min-h-0">
+                    <div id="chat-scroll-wrapper" class="flex-1 min-h-0 overflow-y-auto w-full scrollbar-thin">
+                        <main id="chat-container" class="flex flex-col gap-6 w-full max-w-3xl mx-auto p-8 pb-6">
+                            <!-- Welcome node message -->
+                            <div class="flex gap-4 w-full">
+                                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500/20 to-purple-600/20 border border-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-400">
+                                    <i class="fa-solid fa-graduation-cap text-sm"></i>
+                                </div>
+                                <div class="bg-[#0E1320] border border-[#1F293D]/60 p-5 rounded-2xl rounded-tl-sm shadow-sm max-w-[85%]">
+                                    <h3 class="font-bold text-white mb-2 font-display">Welcome to your active recall study session.</h3>
+                                    <p class="text-gray-300 text-sm mb-0">Upload a study material PDF or select a topic to begin. I will test your conceptual understanding using the Feynman Technique.</p>
+                                </div>
+                            </div>
+                            <!-- Messages generated dynamically -->
+                        </main>
+                    </div>
+
+                    <!-- Input / Controls Composer (Fixed non-overlapping layout) -->
+                    <div class="bg-gradient-to-t from-[#080B12] via-[#080B12] to-[#080B12]/95 border-t border-[#1F293D]/40 pt-6 pb-6 px-6 flex-shrink-0">
+                        <div class="max-w-3xl mx-auto">
+                            <!-- Hints helper tools -->
+                            <div class="flex gap-2 mb-3 justify-end items-center">
+                                <button onclick="triggerProgressiveHint()" class="text-xs bg-[#111622] hover:bg-[#1A2030] text-amber-400 border border-[#1F293D] px-3.5 py-2 rounded-full transition-all shadow-sm font-semibold flex items-center gap-1.5">
+                                    <i class="fa-regular fa-lightbulb text-amber-400 text-sm"></i> 
+                                    <span id="hint-btn-text">I'm stuck, request hint</span>
+                                </button>
+                                <!-- Inline Diagrams rendered seamlessly in chat response cards -->
+                            </div>
+                            
+                            <div class="bg-[#111622] border border-[#1F293D] rounded-2xl shadow-xl p-3 flex items-end gap-3 focus-within:border-indigo-500/80 transition-all">
+                                <button onclick="document.getElementById('file-upload').click()" class="p-3 text-gray-400 hover:text-indigo-400 transition-colors rounded-xl flex-shrink-0 hover:bg-[#1C2336] focus:outline-none" title="Upload Document">
+                                    <i class="fa-solid fa-paperclip text-lg"></i>
+                                </button>
+                                <input type="file" id="file-upload" accept="application/pdf,image/png,image/jpeg" class="hidden">
+                                
+                                <textarea id="message-input" rows="1" placeholder="Explain your concept back in your own words..." class="flex-1 max-h-32 min-h-[44px] outline-none resize-none p-2 py-3 text-gray-100 bg-transparent text-sm scrollbar-none" onkeydown="handleComposerKey(event)"></textarea>
+                                
+                                <!-- Glowing Siri style Voice orb button -->
+                                <button id="voice-orb" onclick="toggleVoiceMock()" class="w-11 h-11 bg-[#1A2030] hover:bg-[#232B40] text-indigo-400 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors focus:outline-none relative group" title="Voice Assistant">
+                                    <i class="fa-solid fa-microphone text-lg group-hover:scale-110 transition-all"></i>
+                                    <div id="voice-pulse-ring" class="absolute inset-0 rounded-xl border border-indigo-500/40 animate-ping hidden"></div>
+                                </button>
+
+                                <button id="send-btn" onclick="sendMessage()" class="bg-indigo-600 hover:bg-indigo-700 text-white w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <i class="fa-solid fa-arrow-up"></i>
+                                </button>
+                            </div>
+                            <div id="upload-status" class="text-center text-xs mt-2 h-4 min-h-[16px]"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Collapsible AI Whiteboard Canvas Panel -->
+                <div id="whiteboard-drawer" class="w-96 border-l border-[#1B2233] bg-[#0B0D15] flex flex-col h-full hidden">
+                    <div class="p-5 border-b border-[#1B2233] flex items-center justify-between">
+                        <span class="font-bold text-white text-sm font-display flex items-center gap-2">
+                            <i class="fa-solid fa-chalkboard-user text-indigo-400"></i> AI Cognitive Whiteboard
+                        </span>
+                        <button onclick="toggleWhiteboard()" class="text-gray-500 hover:text-white p-1 rounded">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                    <div class="flex-1 p-5 overflow-y-auto scrollbar-thin flex flex-col gap-4" id="whiteboard-canvas">
+                        <div class="text-center text-gray-500 text-xs my-auto" id="whiteboard-empty-state">
+                            <i class="fa-solid fa-compass-drafting text-4xl mb-3 text-gray-700 block animate-bounce"></i>
+                            Select "Interview Mode" or ask the tutor questions to visualize cognitive flowcharts.
+                        </div>
+                    </div>
+                    
+                    <!-- Sketchpad integration -->
+                    <div class="p-4 border-t border-[#1B2233] bg-[#0D111A]">
+                        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-2"><i class="fa-solid fa-signature mr-1 text-indigo-400"></i> Student Sketchpad</span>
+                        <canvas id="interactive-sketchpad" class="w-full h-32 bg-[#07090E] border border-[#1F293D] rounded-xl cursor-crosshair" width="340" height="128"></canvas>
+                        <button onclick="clearSketchpad()" class="w-full bg-[#161B29] hover:bg-[#1E253A] text-gray-400 hover:text-white text-xs py-2 rounded-xl mt-2 font-semibold border border-[#1F293D] transition-colors">Clear Sketch</button>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- UI Notification toast wrapper -->
+    <div id="toast-container" class="absolute bottom-6 right-6 z-50 flex flex-col gap-3"></div>
+
+    <!-- Dynamic Context Command Palette (Ctrl+K) -->
+    <div id="command-palette" class="absolute inset-0 bg-[#07090E]/60 backdrop-blur-md z-50 flex items-center justify-center hidden">
+        <div class="bg-[#111622] rounded-2xl border border-[#1F293D] w-full max-w-lg shadow-2xl overflow-hidden">
+            <div class="p-4 border-b border-[#1F293D] flex items-center gap-3">
+                <i class="fa-solid fa-magnifying-glass text-indigo-400"></i>
+                <input type="text" id="palette-search" placeholder="Type a shortcut or navigation command..." class="w-full bg-transparent outline-none text-white text-sm" oninput="filterPaletteShortcuts()">
+            </div>
+            <div class="p-2 max-h-60 overflow-y-auto text-xs" id="palette-list">
+                <!-- items injected via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Frontend Core Controller -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
