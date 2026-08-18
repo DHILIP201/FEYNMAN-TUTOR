@@ -63,8 +63,18 @@ function resolveURL(endpoint) {
 }
 
 
+function getAuthToken() {
+    return localStorage.getItem('feynman_token') || sessionStorage.getItem('feynman_token') || null;
+}
+
+function getAuthUser() {
+    const raw = localStorage.getItem('feynman_user') || sessionStorage.getItem('feynman_user');
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
 async function fetchAPI(endpoint, options = {}) {
-    const token = localStorage.getItem('feynman_token');
+    const token = getAuthToken();
     if (!options.headers) options.headers = {};
     if (token) {
         options.headers['Authorization'] = `Bearer ${token}`;
@@ -75,7 +85,7 @@ async function fetchAPI(endpoint, options = {}) {
     
     try {
         const response = await fetch(resolveURL(endpoint), options);
-        if (response.status === 401 && !endpoint.includes('/login') && !endpoint.includes('/signup')) {
+        if (response.status === 401 && !endpoint.includes('/login') && !endpoint.includes('/signup') && !endpoint.includes('/guest')) {
             console.warn(`[API 401] Unauthorized access on ${endpoint}. Cleared stale auth token.`);
             if (typeof signOut === 'function') {
                 signOut();
@@ -87,6 +97,7 @@ async function fetchAPI(endpoint, options = {}) {
         throw err;
     }
 }
+
 
 // --- HELPER: SAFE MARKDOWN PARSER ---
 function safeMarkdown(str) {
