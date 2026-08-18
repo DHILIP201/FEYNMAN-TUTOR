@@ -19,8 +19,10 @@ class DocumentBlock(BaseModel):
 class TutorDocument(BaseModel):
     schema_version: int = Field(default=2, description="Versioned document schema identifier")
     document_type: str = Field(default="learning_document", description="Document type tag")
+    canonical_topic: str = Field(default="Core Concept", description="Isolated subject topic name")
     lesson_mode: LessonMode = Field(default=LessonMode.STANDARD, description="Pedagogical mode enum: STANDARD, SIMPLIFY, ANALOGY, STEP_BY_STEP")
     cognitive_trace: str
+
     simple_explanation: str
     why_it_works: str
     example: str

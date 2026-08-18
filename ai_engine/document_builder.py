@@ -28,8 +28,12 @@ class DocumentBuilder:
     def create_document(data: Dict[str, Any]) -> TutorDocument:
         blocks = DocumentBuilder.build_blocks(data)
         return TutorDocument(
+            schema_version=data.get("schema_version", 2),
+            document_type=data.get("document_type", "learning_document"),
+            canonical_topic=data.get("canonical_topic", "Core Concept"),
             lesson_mode=data.get("lesson_mode", "STANDARD"),
             cognitive_trace=data.get("cognitive_trace", ""),
+
             simple_explanation=data.get("simple_explanation", ""),
             why_it_works=data.get("why_it_works", ""),
             example=data.get("example", ""),
