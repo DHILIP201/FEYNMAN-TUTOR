@@ -1,0 +1,24 @@
+# Exclude Python backend and dependency files from Vercel Static CDN deployment
+requirements.txt
+runtime.txt
+Pipfile
+pyproject.toml
+poetry.lock
+main.py
+database.py
+ai_engine/
+jobs/
+alembic/
+alembic.ini
+*.py
+tests/
+venv/
+.venv/
+backups/
+scratch/
+test_*.py
+Dockerfile
+render.yaml
+*.db
+*.sqlite
+*.sqlite3
