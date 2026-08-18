@@ -1337,7 +1337,8 @@ print("\n[TRACK C-3] All learning reports and certificate tests PASSED.")
 print("\n--- Track C-4: Admin Operations Console ---")
 
 # C.4.1 & C.4.2: Admin login
-from api.admin import ADMIN_SECRET_KEY
+from routers.admin import ADMIN_SECRET_KEY
+
 print("[TEST C.4.1 & C.4.2] Admin login validation (correct vs wrong key)...")
 r_adm_bad = client.post("/admin/login/", json={"secret_key": "wrong-secret-key-123"})
 assert r_adm_bad.status_code == 401, f"Expected 401, got {r_adm_bad.status_code}"

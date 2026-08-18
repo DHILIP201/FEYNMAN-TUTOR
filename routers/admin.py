@@ -23,7 +23,9 @@ from sqlalchemy import func, desc
 
 from database import get_db, User, ChatSession, LearnerProfile, TopicMastery, TelemetryLog, UserSubscription
 from security import create_access_token, decode_access_token
-from api.certificates import get_learner_report
+from routers.certificates import get_learner_report
+
+
 
 router = APIRouter(prefix="/admin", tags=["Admin Operations"])
 

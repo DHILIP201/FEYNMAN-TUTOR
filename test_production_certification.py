@@ -505,7 +505,8 @@ print(f"  [OK] Gate 9: PDF Certificate generated ({len(r_pdf.content)} bytes) an
 # ─────────────────────────────────────────────────────────────────────────────
 print("\n[GATE 10] Admin Operations Console & RBAC Authorization...")
 
-from api.admin import ADMIN_SECRET_KEY
+from routers.admin import ADMIN_SECRET_KEY
+
 
 # 10.1: Admin login
 r_adm_login = client.post("/admin/login/", json={"secret_key": ADMIN_SECRET_KEY})

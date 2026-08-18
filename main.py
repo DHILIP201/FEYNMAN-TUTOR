@@ -53,9 +53,10 @@ from ai_engine import (
     seed_foundational_knowledge_graph
 )
 from ai_engine.memory.subject_catalog import get_subjects as _get_subjects, SUBJECT_CATALOG, PRIMARY_SUBJECTS
-from api.certificates import generate_certificate, verify_certificate, get_learner_report
-from api.admin import router as admin_router
-from api.billing import router as billing_router
+from routers.certificates import generate_certificate, verify_certificate, get_learner_report
+from routers.admin import router as admin_router
+from routers.billing import router as billing_router
+
 
 from security import (
     get_password_hash, 

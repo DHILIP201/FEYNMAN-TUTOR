@@ -6,11 +6,16 @@ pyproject.toml
 poetry.lock
 main.py
 database.py
+security.py
+rag.py
 ai_engine/
 jobs/
+routers/
+api/
 alembic/
 alembic.ini
 *.py
+
 tests/
 venv/
 .venv/
