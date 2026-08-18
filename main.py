@@ -149,6 +149,7 @@ custom_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()
 
 default_origins = [
     "https://feynman-tutor.onrender.com",
+    "https://feynman-tutor-omega.vercel.app",
     "https://feynman-tutor.vercel.app",
     "http://localhost:3000",
     "http://localhost:5173",
@@ -164,12 +165,13 @@ all_allowed_origins = list(set(default_origins + custom_origins))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=all_allowed_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://feynman-tutor.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
     expose_headers=["X-Request-ID", "X-Process-Time-Ms"],
 )
+
 
 
 # Mount static and templates folders safely
