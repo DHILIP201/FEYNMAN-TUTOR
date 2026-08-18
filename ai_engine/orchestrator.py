@@ -3,7 +3,8 @@ Feynman Cognitive Engine (FCE) Orchestrator
 Manages prompt planning, LLM provider routing, document block generation, and fault-tolerant fallbacks.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+
 from .planner import LearningPlanner, LearningPlan
 from .prompt_builder import PromptBuilder
 from .response_validator import ResponseValidator
@@ -29,9 +30,9 @@ class FeynmanCognitiveEngine:
         target_provider = provider_name or engine_config.provider_name
         return ProviderFactory.create(target_provider, engine_config.model_name)
 
-    def validate_and_build_document(self, raw_data: Dict[str, Any], default_mastery: int = 0) -> TutorDocument:
+    def validate_and_build_document(self, raw_data: Dict[str, Any], default_mastery: int = 0, fallback_topic: Optional[str] = None) -> TutorDocument:
         """Stage 4 & 5: Repair, validate contract fields, and return strongly-typed TutorDocument."""
-        return ResponseValidator.validate_and_repair(raw_data, default_mastery)
+        return ResponseValidator.validate_and_repair(raw_data, default_mastery, fallback_topic=fallback_topic)
 
     def build_document_blocks(self, tutor_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -40,12 +41,14 @@ class FeynmanCognitiveEngine:
         blocks = DocumentBuilder.build_blocks(tutor_data)
         return [b.model_dump() for b in blocks]
 
-    def get_fallback_document(self, user_message: str, current_mastery: int, sources: List[Any]) -> Dict[str, Any]:
+    def get_fallback_document(self, user_message: str, current_mastery: int, sources: List[Any], session_topic: Optional[str] = None) -> Dict[str, Any]:
         """
         Generates an intent-aware structured learning document if upstream API providers hit transient rate limits.
+        Inherits session_topic when processing follow-up actions like Simplify, Analogy, or Step-by-Step.
         """
         from .response_validator import extract_canonical_topic, synthesize_standard_lesson
-        canonical_topic = extract_canonical_topic(user_message)
+        canonical_topic = extract_canonical_topic(user_message, fallback_topic=session_topic)
+
         msg_lower = user_message.lower()
 
         if "step by step" in msg_lower or "teach me" in msg_lower:
@@ -165,8 +168,9 @@ class FeynmanCognitiveEngine:
                 "sources": sources
             }
 
-        doc = ResponseValidator.validate_and_repair(raw_data, current_mastery)
+        doc = ResponseValidator.validate_and_repair(raw_data, current_mastery, fallback_topic=canonical_topic)
         return doc.model_dump()
+
 
 feynman_engine = FeynmanCognitiveEngine()
 

@@ -1353,7 +1353,26 @@ async def tutor_chat(
 
     # STAGE 1 & 2: Clean Topic & Formulate LearningPlan via FeynmanCognitiveEngine
     from ai_engine.response_validator import extract_canonical_topic
-    cleaned_user_topic = extract_canonical_topic(request.user_message)
+    
+    # Contextual Topic Inheritance from previous conversation turns
+    session_active_topic = None
+    for m in reversed(history_msgs):
+        if m.role in ("model", "ai"):
+            try:
+                d_prev = json.loads(m.content)
+                t_prev = d_prev.get("canonical_topic")
+                if t_prev and t_prev not in ("Core Concept", "Concept", ""):
+                    session_active_topic = t_prev
+                    break
+            except Exception:
+                pass
+    
+    if not session_active_topic and session.title and session.title not in ("Untitled Chat", "New Study Session", "Core Concept"):
+        clean_title = session.title.replace("...", "").strip()
+        if clean_title and clean_title not in ("Core Concept", "Concept"):
+            session_active_topic = clean_title
+
+    cleaned_user_topic = extract_canonical_topic(request.user_message, fallback_topic=session_active_topic)
 
     # TRACK B: Record Lesson Event & Construct Persistent Learner Memory Context
     learner_memory_engine.record_lesson_started(
@@ -1439,7 +1458,8 @@ async def tutor_chat(
             tutor_data = feynman_engine.get_fallback_document(
                 user_message=request.user_message,
                 current_mastery=session.mastery,
-                sources=sources_citation
+                sources=sources_citation,
+                session_topic=cleaned_user_topic
             )
             session.mastery = tutor_data["mastery_score"]
             ai_chat_msg = ChatMessage(
@@ -1459,7 +1479,8 @@ async def tutor_chat(
             tutor_data = feynman_engine.get_fallback_document(
                 user_message=request.user_message,
                 current_mastery=session.mastery,
-                sources=sources_citation
+                sources=sources_citation,
+                session_topic=cleaned_user_topic
             )
             session.mastery = tutor_data["mastery_score"]
             ai_chat_msg = ChatMessage(
@@ -1473,9 +1494,10 @@ async def tutor_chat(
 
         raw_json["sources"] = sources_citation
         raw_json["canonical_topic"] = cleaned_user_topic
-        tutor_doc = feynman_engine.validate_and_build_document(raw_json, session.mastery)
+        tutor_doc = feynman_engine.validate_and_build_document(raw_json, session.mastery, fallback_topic=cleaned_user_topic)
         tutor_data = tutor_doc.model_dump()
         tutor_data["blocks"] = feynman_engine.build_document_blocks(tutor_data)
+
 
         # Automatic Answer Evaluation Pipeline (Prior-Question Guard + Backend Ownership + Idempotency)
         had_prior_question = False

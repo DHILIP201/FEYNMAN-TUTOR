@@ -237,29 +237,30 @@ def clean_prompt_echo(text: str, is_explanation: bool = False) -> str:
 
     return stripped
 
-def extract_canonical_topic(text: str) -> str:
+def extract_canonical_topic(text: str, fallback_topic: Optional[str] = None) -> str:
     """
     Isolates the clean canonical subject topic from raw user prompts.
     Single source of truth across Feynman AI orchestrator, validator, memory, and UI.
+    Inherits fallback_topic when the prompt is a follow-up action without an explicit new subject.
     """
     if not text:
-        return "Core Concept"
+        return fallback_topic or "Core Concept"
     
     cleaned = re.sub(
-        r'^(Teach me step by step until I understand|Teach me\s+|Explain this concept even simpler|Explain this simpler|Explain\s+|Give a real[- ]world analogy for|Give a real[- ]world analogy|Give an analogy for|Tell me about advanced applications of|Tell me about|Understanding how the|Understanding how|Understanding|Explain what is|What is\s+(an\s+|a\s+|the\s+)?|What are\s+(the\s+)?|What\s+|How does\s+|How do\s+|Why is\s+|Can you explain\s+|Deep dive into\s+)\s*',
+        r'^(Teach me step by step until I understand|Teach me\s+(step by step|until I understand)?|Explain this concept even simpler|Explain this concept simply|Explain this simpler|Explain this concept|Explain this\s+|Explain\s+(this\s+|it\s+|the concept\s+)?|Give a real[- ]world analogy for|Give a real[- ]world analogy|Give an analogy for|Give an analogy|Tell me about advanced applications of|Tell me about this|Tell me about|Understanding how the|Understanding how|Understanding|Explain what is|What is\s+(an\s+|a\s+|the\s+)?|What are\s+(the\s+)?|What\s+|How does\s+|How do\s+|Why is\s+|Can you explain\s+|Deep dive into\s+)\s*',
         '',
         text.strip(),
         flags=re.IGNORECASE
     ).strip()
     
-    cleaned = re.sub(r'^(an\s+|a\s+|the\s+)', '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'^(an\s+|a\s+|the\s+|this\s+|it\s+)', '', cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.sub(r'^[:\-\s]+', '', cleaned).strip()
     cleaned = re.sub(r'\s+(step by step|in simple terms|simply|with an analogy|until I understand|for beginners)[\?!.]*$', '', cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.sub(r'[:\-\?\.!\s]+$', '', cleaned).strip()
     
-    if not cleaned or len(cleaned) < 2:
-        cleaned = "Core Concept"
-
+    generic_words = {"this", "it", "concept", "this concept", "the concept", "core concept", "more", "everything", "detail", "details", "again", "simpler", "analogy", "step by step", ""}
+    if not cleaned or len(cleaned) < 2 or cleaned.lower() in generic_words:
+        return fallback_topic or "Core Concept"
     
     if len(cleaned.split()) <= 5:
         titled = cleaned.title()
@@ -267,6 +268,7 @@ def extract_canonical_topic(text: str) -> str:
         return " ".join(words)
     else:
         return cleaned[0].upper() + cleaned[1:]
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -392,7 +394,7 @@ def synthesize_standard_lesson(canonical_topic: str, partial_exp: str = "", part
 
 class ResponseValidator:
     @staticmethod
-    def validate_and_repair(data: Dict[str, Any], default_mastery: int = 0) -> TutorDocument:
+    def validate_and_repair(data: Dict[str, Any], default_mastery: int = 0, fallback_topic: Optional[str] = None) -> TutorDocument:
         """
         Validates contract response dictionary and enforces full-depth standard lessons,
         mode-specific diagrams, and clean canonical topics.
@@ -417,9 +419,11 @@ class ResponseValidator:
             mode = LessonMode.STANDARD
         repaired["lesson_mode"] = mode
 
-        # Extract clean canonical topic from context
-        canonical_topic = extract_canonical_topic(repaired.get("canonical_topic") or explanation[:60])
+        # Extract clean canonical topic from context with fallback inheritance
+        raw_topic = repaired.get("canonical_topic") or fallback_topic or explanation[:60]
+        canonical_topic = extract_canonical_topic(raw_topic, fallback_topic=fallback_topic)
         repaired["canonical_topic"] = canonical_topic
+
 
         # Clean prompt echo from explanation opening
         explanation = clean_prompt_echo(explanation, is_explanation=True)
