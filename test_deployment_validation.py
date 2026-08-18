@@ -161,6 +161,26 @@ try:
 finally:
     _db.close()
 
+# 4.0: Frontend Script Integrity & Auth UI Contract
+import subprocess
+node_check = subprocess.run(["node", "--check", "static/js/app.js"], capture_output=True, text=True)
+assert node_check.returncode == 0, f"static/js/app.js has syntax errors: {node_check.stderr}"
+
+with open("index.html", "r", encoding="utf-8") as f:
+    index_html = f.read()
+
+required_auth_ids = [
+    'id="auth-overlay"', 'id="tab-login"', 'id="tab-signup"',
+    'id="auth-form"', 'id="auth-name-field"', 'id="auth-email"',
+    'id="auth-password"', 'id="auth-confirm-password-field"',
+    'id="auth-remember"', 'id="auth-submit-btn"', 'id="auth-guest-btn"',
+    'id="auth-alert"', 'id="forgot-password-modal"'
+]
+for req_id in required_auth_ids:
+    assert req_id in index_html, f"Missing required Auth UI element: {req_id}"
+
+print("  [OK] 4.0: Auth UI script integrity & DOM element contracts (AUTH-UI-1..7): PASS")
+
 # 4.1: Register
 r_reg = client.post("/auth/signup/", json={
     "name": VAL_USER_NAME,
@@ -172,14 +192,23 @@ val_token = r_reg.json()["access_token"]
 headers = {"Authorization": f"Bearer {val_token}"}
 print("  [OK] 4.1: Registration & automatic profile initialization: PASS")
 
-# 4.2: Session Login
+# 4.2: Session Login & Guest Auth
 r_login = client.post("/auth/login/", json={
     "email": VAL_USER_EMAIL,
     "password": VAL_USER_PASS
 })
 assert r_login.status_code == 200
 assert "access_token" in r_login.json()
-print("  [OK] 4.2: Login authentication & session restoration: PASS")
+
+# Guest Auth
+r_guest = client.post("/auth/guest/")
+assert r_guest.status_code == 200
+assert "access_token" in r_guest.json()
+assert "guest" in r_guest.json()["user"]["email"].lower()
+
+print("  [OK] 4.2: Login authentication & Guest mode session: PASS")
+
+
 
 # 4.3: Document Upload (RAG)
 with open("test_study_material.pdf", "rb") as f:

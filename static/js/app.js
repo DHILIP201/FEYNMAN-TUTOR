@@ -42,13 +42,16 @@ const API_BASE_URL = (function() {
             }
             return '';
         }
-        // When running on Vercel or any external frontend, route API requests to Render backend
-        if (hostname.endsWith('.vercel.app') || window.location.protocol === 'file:') {
-            return 'https://feynman-tutor.onrender.com';
+        // If served directly from Render backend, use same-origin relative URLs
+        if (hostname === 'feynman-tutor.onrender.com') {
+            return '';
         }
+        // When running on Vercel or any external frontend / static CDN, route to Render backend
+        return 'https://feynman-tutor.onrender.com';
     }
     return '';
 })();
+
 
 function resolveURL(endpoint) {
     if (!endpoint) return '';
@@ -357,9 +360,9 @@ function renderDynamicKnowledgeMap(mapData) {
         container.appendChild(nodeCard);
     });
 }
-}
 
 function initDragAndDrop() {
+
     const paneChat = document.getElementById('pane-chat');
     const dragOverlay = document.getElementById('drag-drop-overlay');
     
@@ -3354,6 +3357,40 @@ async function submitNewPassword() {
     }
 }
 
+// --- EXPLICIT GLOBAL BINDINGS FOR INLINE HTML EVENT HANDLERS ---
+if (typeof window !== 'undefined') {
+    window.setAuthMode = setAuthMode;
+    window.handleAuthSubmit = handleAuthSubmit;
+    window.continueAsGuest = continueAsGuest;
+    window.togglePasswordVisibility = togglePasswordVisibility;
+    window.openForgotPasswordModal = openForgotPasswordModal;
+    window.closeForgotPasswordModal = closeForgotPasswordModal;
+    window.sendPasswordResetCode = sendPasswordResetCode;
+    window.resendPasswordResetCode = resendPasswordResetCode;
+    window.handleOtpInput = handleOtpInput;
+    window.handleOtpPaste = handleOtpPaste;
+    window.verifyPasswordResetCode = verifyPasswordResetCode;
+    window.checkResetPasswordStrength = checkResetPasswordStrength;
+    window.submitNewPassword = submitNewPassword;
+    window.signOut = signOut;
+    window.init = init;
+    window.switchTab = switchTab;
+    window.createNewChat = createNewChat;
+    window.openSessionPDF = openSessionPDF;
+    window.triggerProgressiveHint = triggerProgressiveHint;
+    window.handleComposerKey = handleComposerKey;
+    window.toggleVoiceMock = toggleVoiceMock;
+    window.sendMessage = sendMessage;
+    window.startRecommendedLesson = startRecommendedLesson;
+    window.startTopicLesson = startTopicLesson;
+}
 
 // Boot the application
-init();
+if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => { init(); });
+    } else {
+        init();
+    }
+}
+
