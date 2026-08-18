@@ -143,7 +143,7 @@ async def security_headers_middleware(request: Request, call_next):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
-# Production-Hardened CORS Configuration
+# Production-Hardened CORS Configuration (Exact Explicit Origins Only)
 allowed_origins_env = os.getenv("CORS_ORIGINS", "")
 custom_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
 
@@ -165,12 +165,12 @@ all_allowed_origins = list(set(default_origins + custom_origins))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=all_allowed_origins,
-    allow_origin_regex=r"https://feynman-tutor.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
     expose_headers=["X-Request-ID", "X-Process-Time-Ms"],
 )
+
 
 
 

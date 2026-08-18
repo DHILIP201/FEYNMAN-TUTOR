@@ -382,6 +382,37 @@ assert "email" not in v_json
 assert "user_id" not in v_json
 print("  [OK] 8.2: Public certificate verification enumeration protection (JSON & HTML): PASS")
 
+# 8.3: Production CORS strict origin verification
+# A. Allowed: https://feynman-tutor-omega.vercel.app
+r_cors_allowed = client.options("/health", headers={
+    "Origin": "https://feynman-tutor-omega.vercel.app",
+    "Access-Control-Request-Method": "GET"
+})
+assert r_cors_allowed.headers.get("access-control-allow-origin") == "https://feynman-tutor-omega.vercel.app"
+
+# B. Rejected: https://evil-example.vercel.app
+r_cors_evil = client.options("/health", headers={
+    "Origin": "https://evil-example.vercel.app",
+    "Access-Control-Request-Method": "GET"
+})
+assert r_cors_evil.headers.get("access-control-allow-origin") is None
+
+# C. Rejected: https://feynman-tutor-other.vercel.app
+r_cors_other = client.options("/health", headers={
+    "Origin": "https://feynman-tutor-other.vercel.app",
+    "Access-Control-Request-Method": "GET"
+})
+assert r_cors_other.headers.get("access-control-allow-origin") is None
+
+# D. Local development: http://localhost:3000
+r_cors_local = client.options("/health", headers={
+    "Origin": "http://localhost:3000",
+    "Access-Control-Request-Method": "GET"
+})
+assert r_cors_local.headers.get("access-control-allow-origin") == "http://localhost:3000"
+print("  [OK] 8.3: Production CORS strict origin verification (omega allowed, evil/other rejected, localhost allowed): PASS")
+
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

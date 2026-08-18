@@ -30,8 +30,11 @@ def send_email_message(to_email: str, subject: str, body_text: str, body_html: s
 
     if not smtp_host or not smtp_user:
         # Dev / test environment: log and succeed
-        print(f"[EMAIL MOCK] To: {to_email} | Subject: {subject} | Body: {body_text[:60]}...")
+        clean_sub = subject.encode('ascii', errors='replace').decode('ascii')
+        clean_body = body_text[:60].encode('ascii', errors='replace').decode('ascii')
+        print(f"[EMAIL MOCK] To: {to_email} | Subject: {clean_sub} | Body: {clean_body}...")
         return True
+
 
     try:
         msg = MIMEMultipart("alternative")
