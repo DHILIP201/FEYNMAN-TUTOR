@@ -529,6 +529,8 @@ async function handlePdfUpload(file) {
             document.getElementById('header-doc-title').innerText = file.name;
             const openPdfBtn = document.getElementById('open-pdf-btn');
             if (openPdfBtn) openPdfBtn.classList.remove('hidden');
+            const startQuizBtn = document.getElementById('start-quiz-btn');
+            if (startQuizBtn) startQuizBtn.classList.remove('hidden');
             
             const welcomeText = `### 📄 Document Ready: ${file.name}
 
@@ -579,6 +581,8 @@ async function handlePdfUpload(file) {
             document.getElementById('header-doc-title').innerText = file.name;
             const openPdfBtn = document.getElementById('open-pdf-btn');
             if (openPdfBtn) openPdfBtn.classList.remove('hidden');
+            const startQuizBtn = document.getElementById('start-quiz-btn');
+            if (startQuizBtn) startQuizBtn.classList.remove('hidden');
             
             const welcomeText = `### 📄 Document Ready: ${file.name}
 
@@ -1142,13 +1146,21 @@ async function loadSession(id) {
     updateMasteryUI(session.mastery);
     chatContainer.innerHTML = '';
     
-    // Toggle Open PDF Button
+    // Toggle Open PDF and Start Quiz Buttons
     const openPdfBtn = document.getElementById('open-pdf-btn');
+    const startQuizBtn = document.getElementById('start-quiz-btn');
     if (openPdfBtn) {
         if (session.hasDoc) {
             openPdfBtn.classList.remove('hidden');
         } else {
             openPdfBtn.classList.add('hidden');
+        }
+    }
+    if (startQuizBtn) {
+        if (session.hasDoc) {
+            startQuizBtn.classList.remove('hidden');
+        } else {
+            startQuizBtn.classList.add('hidden');
         }
     }
     
@@ -1183,10 +1195,14 @@ function createNewChat() {
     updateMasteryUI(0);
     chatContainer.innerHTML = '';
     
-    // Hide Open PDF Button for new chats
+    // Hide Open PDF and Start Quiz Buttons for new chats
     const openPdfBtn = document.getElementById('open-pdf-btn');
     if (openPdfBtn) {
         openPdfBtn.classList.add('hidden');
+    }
+    const startQuizBtn = document.getElementById('start-quiz-btn');
+    if (startQuizBtn) {
+        startQuizBtn.classList.add('hidden');
     }
     
     const introDiv = document.createElement('div');
@@ -3448,6 +3464,528 @@ async function submitNewPassword() {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TRACK D: FIRST-CLASS INTERACTIVE PDF QUIZ MODE CONTROLLER
+// ─────────────────────────────────────────────────────────────────────────────
+
+let activeQuizState = null;
+
+async function startInteractiveQuiz() {
+    if (!currentSessionId) {
+        showToast("Please open or create a chat session first.", "error");
+        return;
+    }
+    const session = chatSessions[currentSessionId];
+    if (!session || !session.hasDoc) {
+        showToast("Please upload a PDF study document first to start a grounded quiz.", "error");
+        return;
+    }
+
+    const modal = document.getElementById('quiz-modal');
+    const body = document.getElementById('quiz-body');
+    const progressSec = document.getElementById('quiz-progress-section');
+    const footer = document.getElementById('quiz-footer');
+    
+    if (modal) modal.classList.remove('hidden');
+    if (progressSec) progressSec.classList.add('hidden');
+    if (footer) footer.classList.add('hidden');
+
+    if (body) {
+        body.innerHTML = `
+            <div class="py-16 flex flex-col items-center justify-center text-center space-y-4">
+                <div class="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-2xl animate-pulse">
+                    <i class="fa-solid fa-brain"></i>
+                </div>
+                <div>
+                    <h4 class="text-white font-bold text-lg font-display">Generating Grounded Assessment</h4>
+                    <p class="text-gray-400 text-xs mt-1 max-w-sm">Extracting document chunks and generating factual questions via GeminiGateway...</p>
+                </div>
+                <div class="flex items-center gap-2 text-indigo-400 text-xs font-semibold mt-2">
+                    <i class="fa-solid fa-spinner animate-spin"></i> Analyzing PDF context...
+                </div>
+            </div>
+        `;
+    }
+
+    try {
+        const response = await fetchAPI('/quiz/start/', {
+            method: 'POST',
+            body: JSON.stringify({
+                session_id: currentSessionId,
+                question_count: 8,
+                difficulty: 'adaptive'
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.detail || "Failed to generate quiz.");
+        }
+
+        activeQuizState = {
+            quizId: data.quiz_id,
+            topic: data.topic || session.title,
+            questions: data.questions || [],
+            currentIndex: 0,
+            selectedAnswer: null,
+            isAnswered: false,
+            currentScorePercent: 0
+        };
+
+        if (activeQuizState.questions.length === 0) {
+            throw new Error("No valid questions could be generated from this document.");
+        }
+
+        renderQuizQuestion();
+
+    } catch (err) {
+        console.error("[Quiz Start Error]", err);
+        if (body) {
+            body.innerHTML = `
+                <div class="py-12 flex flex-col items-center justify-center text-center space-y-4">
+                    <div class="w-12 h-12 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 text-xl">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-white font-bold text-base">Quiz Generation Error</h4>
+                        <p class="text-gray-400 text-xs mt-1 max-w-sm">${err.message || "Failed to generate questions. Please ensure your PDF is uploaded and retry."}</p>
+                    </div>
+                    <div class="flex items-center gap-3 pt-2">
+                        <button onclick="startInteractiveQuiz()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl font-bold transition-all">
+                            <i class="fa-solid fa-rotate-right mr-1"></i> Retry
+                        </button>
+                        <button onclick="closeQuizModal()" class="text-xs bg-[#1A2030] hover:bg-[#232B40] text-gray-300 px-4 py-2.5 rounded-xl font-semibold transition-all">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+    }
+}
+
+function renderQuizQuestion() {
+    if (!activeQuizState || !activeQuizState.questions || activeQuizState.currentIndex >= activeQuizState.questions.length) {
+        return;
+    }
+
+    const q = activeQuizState.questions[activeQuizState.currentIndex];
+    const total = activeQuizState.questions.length;
+    const currentNum = activeQuizState.currentIndex + 1;
+    const progressPct = Math.round((currentNum / total) * 100);
+
+    // Update Header and Progress
+    const subtitle = document.getElementById('quiz-modal-subtitle');
+    if (subtitle) subtitle.innerText = `Topic: ${activeQuizState.topic}`;
+
+    const progressSec = document.getElementById('quiz-progress-section');
+    if (progressSec) progressSec.classList.remove('hidden');
+
+    const progressText = document.getElementById('quiz-progress-text');
+    if (progressText) progressText.innerText = `Question ${currentNum} of ${total}`;
+
+    const progressBar = document.getElementById('quiz-progress-bar');
+    if (progressBar) progressBar.style.width = `${progressPct}%`;
+
+    const scoreBadge = document.getElementById('quiz-score-badge');
+    if (scoreBadge) scoreBadge.innerText = `Score: ${activeQuizState.currentScorePercent}%`;
+
+    // Render Question Body
+    const body = document.getElementById('quiz-body');
+    if (!body) return;
+
+    let optionsHtml = '';
+    if (q.question_type === 'TF') {
+        const tfOptions = ["True", "False"];
+        optionsHtml = `
+            <div class="grid grid-cols-2 gap-3 mt-4">
+                ${tfOptions.map(opt => `
+                    <button type="button" onclick="selectQuizOption('${opt}')" id="quiz-opt-${opt}" class="quiz-option-btn p-4 rounded-xl border border-[#1F293D] bg-[#0D111A] hover:border-indigo-500/50 hover:bg-[#121724] text-left text-sm font-semibold text-gray-200 transition-all flex items-center gap-3">
+                        <span class="w-6 h-6 rounded-full border border-gray-600 flex items-center justify-center text-xs font-bold text-gray-400 opt-radio">
+                            ${opt === 'True' ? 'T' : 'F'}
+                        </span>
+                        <span>${opt}</span>
+                    </button>
+                `).join('')}
+            </div>
+        `;
+    } else {
+        optionsHtml = `
+            <div class="space-y-3 mt-4">
+                ${q.options.map((optStr, idx) => {
+                    const letter = optStr.trim().charAt(0).toUpperCase();
+                    return `
+                        <button type="button" onclick="selectQuizOption('${letter}')" id="quiz-opt-${letter}" class="quiz-option-btn w-full p-3.5 rounded-xl border border-[#1F293D] bg-[#0D111A] hover:border-indigo-500/50 hover:bg-[#121724] text-left text-xs font-semibold text-gray-200 transition-all flex items-center gap-3">
+                            <span class="w-6 h-6 rounded-lg bg-[#161C2C] border border-[#263147] flex items-center justify-center text-xs font-bold text-indigo-400 opt-radio flex-shrink-0">
+                                ${letter}
+                            </span>
+                            <span class="flex-1 leading-relaxed">${optStr}</span>
+                        </button>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    body.innerHTML = `
+        <div class="space-y-4">
+            <!-- Metadata Tags -->
+            <div class="flex items-center justify-between text-[11px] font-bold">
+                <span class="text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20">
+                    <i class="fa-solid fa-bookmark mr-1"></i> ${q.canonical_topic || activeQuizState.topic}
+                </span>
+                <div class="flex items-center gap-2 text-gray-400">
+                    ${q.source_page ? `<span class="bg-[#141824] px-2 py-0.5 rounded border border-[#222A3D]"><i class="fa-regular fa-file-lines mr-1 text-gray-400"></i> Page ${q.source_page}</span>` : ''}
+                    <span class="uppercase tracking-wider text-[10px] text-gray-400 bg-[#141824] px-2 py-0.5 rounded border border-[#222A3D]">
+                        ${q.difficulty || 'Medium'}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Question Prompt -->
+            <div class="text-white font-medium text-sm sm:text-base leading-relaxed font-display pt-1">
+                ${q.question_text}
+            </div>
+
+            <!-- Options -->
+            ${optionsHtml}
+
+            <!-- Progressive Hint Container -->
+            <div id="quiz-hint-container" class="hidden pt-2"></div>
+
+            <!-- Immediate Feedback Container -->
+            <div id="quiz-feedback-container" class="hidden pt-2"></div>
+        </div>
+    `;
+
+    // Reset Footer Actions
+    const footer = document.getElementById('quiz-footer');
+    if (footer) footer.classList.remove('hidden');
+
+    const hintBtn = document.getElementById('quiz-hint-btn');
+    const hintBtnText = document.getElementById('quiz-hint-btn-text');
+    if (hintBtn) {
+        hintBtn.classList.remove('hidden');
+        hintBtn.disabled = false;
+    }
+    if (hintBtnText) hintBtnText.innerText = "I'm stuck, request hint";
+
+    const submitBtn = document.getElementById('quiz-submit-btn');
+    if (submitBtn) {
+        submitBtn.classList.remove('hidden');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `Submit Answer <i class="fa-solid fa-arrow-right"></i>`;
+    }
+
+    const nextBtn = document.getElementById('quiz-next-btn');
+    if (nextBtn) nextBtn.classList.add('hidden');
+
+    activeQuizState.selectedAnswer = null;
+    activeQuizState.isAnswered = false;
+}
+
+function selectQuizOption(optionKey) {
+    if (!activeQuizState || activeQuizState.isAnswered) return;
+    activeQuizState.selectedAnswer = optionKey;
+
+    document.querySelectorAll('.quiz-option-btn').forEach(btn => {
+        btn.classList.remove('border-indigo-500', 'bg-indigo-600/10', 'text-white');
+        btn.classList.add('border-[#1F293D]', 'bg-[#0D111A]', 'text-gray-200');
+        const radio = btn.querySelector('.opt-radio');
+        if (radio) {
+            radio.classList.remove('bg-indigo-500', 'text-white');
+            radio.classList.add('text-indigo-400', 'bg-[#161C2C]');
+        }
+    });
+
+    const selectedBtn = document.getElementById(`quiz-opt-${optionKey}`);
+    if (selectedBtn) {
+        selectedBtn.classList.remove('border-[#1F293D]', 'bg-[#0D111A]', 'text-gray-200');
+        selectedBtn.classList.add('border-indigo-500', 'bg-indigo-600/10', 'text-white');
+        const radio = selectedBtn.querySelector('.opt-radio');
+        if (radio) {
+            radio.classList.remove('text-indigo-400', 'bg-[#161C2C]');
+            radio.classList.add('bg-indigo-500', 'text-white');
+        }
+    }
+
+    const submitBtn = document.getElementById('quiz-submit-btn');
+    if (submitBtn) submitBtn.disabled = false;
+}
+
+async function requestQuizHint() {
+    if (!activeQuizState || activeQuizState.isAnswered) return;
+    const q = activeQuizState.questions[activeQuizState.currentIndex];
+    const hintBtn = document.getElementById('quiz-hint-btn');
+    const hintBtnText = document.getElementById('quiz-hint-btn-text');
+    const hintContainer = document.getElementById('quiz-hint-container');
+
+    if (hintBtn) hintBtn.disabled = true;
+    if (hintBtnText) hintBtnText.innerText = "Retrieving hint...";
+
+    try {
+        const response = await fetchAPI(`/quiz/${activeQuizState.quizId}/hint/`, {
+            method: 'POST',
+            body: JSON.stringify({ question_id: q.id })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Could not fetch hint.");
+
+        if (hintContainer) {
+            hintContainer.classList.remove('hidden');
+            hintContainer.innerHTML = `
+                <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 text-xs text-amber-200 flex items-start gap-3">
+                    <i class="fa-solid fa-lightbulb text-amber-400 text-sm mt-0.5"></i>
+                    <div class="flex-1 leading-relaxed">
+                        <span class="font-bold text-amber-300">Guided Hint:</span> ${data.hint}
+                    </div>
+                </div>
+            `;
+        }
+
+        if (hintBtn && hintBtnText) {
+            if (data.is_final_hint) {
+                hintBtnText.innerText = "Final hint displayed";
+                hintBtn.disabled = true;
+            } else {
+                hintBtnText.innerText = `Next Hint (${data.hint_number + 1}/3)`;
+                hintBtn.disabled = false;
+            }
+        }
+
+    } catch (err) {
+        showToast(err.message || "Hint unavailable", "error");
+        if (hintBtn && hintBtnText) {
+            hintBtnText.innerText = "Request Hint";
+            hintBtn.disabled = false;
+        }
+    }
+}
+
+async function submitQuizAnswer() {
+    if (!activeQuizState || !activeQuizState.selectedAnswer || activeQuizState.isAnswered) return;
+    const q = activeQuizState.questions[activeQuizState.currentIndex];
+    const submitBtn = document.getElementById('quiz-submit-btn');
+    const hintBtn = document.getElementById('quiz-hint-btn');
+    const feedbackContainer = document.getElementById('quiz-feedback-container');
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span>Evaluating...</span><i class="fa-solid fa-spinner animate-spin text-xs"></i>`;
+    }
+
+    try {
+        const response = await fetchAPI(`/quiz/${activeQuizState.quizId}/answer/`, {
+            method: 'POST',
+            body: JSON.stringify({
+                question_id: q.id,
+                answer: activeQuizState.selectedAnswer
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Failed to record answer.");
+
+        activeQuizState.isAnswered = true;
+        activeQuizState.currentScorePercent = data.quiz_progress.score_percent;
+
+        // Update score badge
+        const scoreBadge = document.getElementById('quiz-score-badge');
+        if (scoreBadge) scoreBadge.innerText = `Score: ${data.quiz_progress.score_percent}%`;
+
+        // Highlight options
+        const userChoice = activeQuizState.selectedAnswer.toUpperCase();
+        const correctChoice = (data.correct_answer || "").toUpperCase();
+
+        const userBtn = document.getElementById(`quiz-opt-${userChoice}`);
+        if (userBtn) {
+            if (data.is_correct) {
+                userBtn.className = "quiz-option-btn w-full p-3.5 rounded-xl border border-emerald-500 bg-emerald-500/10 text-emerald-300 font-semibold text-xs flex items-center gap-3";
+            } else {
+                userBtn.className = "quiz-option-btn w-full p-3.5 rounded-xl border border-red-500 bg-red-500/10 text-red-300 font-semibold text-xs flex items-center gap-3";
+            }
+        }
+
+        // Highlight correct if incorrect
+        if (!data.is_correct) {
+            const correctBtn = document.getElementById(`quiz-opt-${correctChoice}`);
+            if (correctBtn) {
+                correctBtn.className = "quiz-option-btn w-full p-3.5 rounded-xl border border-emerald-500/60 bg-emerald-500/10 text-emerald-300 font-semibold text-xs flex items-center gap-3";
+            }
+        }
+
+        // Render Feedback Box
+        if (feedbackContainer) {
+            feedbackContainer.classList.remove('hidden');
+            const isCorrect = data.is_correct;
+            feedbackContainer.innerHTML = `
+                <div class="rounded-xl border ${isCorrect ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/30 text-red-300'} p-4 space-y-2">
+                    <div class="flex items-center justify-between font-bold text-xs">
+                        <span class="flex items-center gap-2">
+                            <i class="fa-solid ${isCorrect ? 'fa-circle-check text-emerald-400' : 'fa-circle-xmark text-red-400'}"></i>
+                            ${isCorrect ? 'Correct! Excellent recall.' : `Incorrect · Correct Answer: ${data.correct_answer}`}
+                        </span>
+                        ${data.source_page ? `<span class="text-[10px] opacity-80 font-mono">Source: Page ${data.source_page}</span>` : ''}
+                    </div>
+                    <p class="text-xs leading-relaxed text-gray-300 pt-1">${data.explanation}</p>
+                    ${data.mastery_signal && data.mastery_signal.mastery_score !== undefined ? `
+                        <div class="pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-gray-400">
+                            <span>Learner Memory Updated: <strong class="text-white">${data.mastery_signal.topic}</strong></span>
+                            <span class="font-bold text-indigo-400">Mastery: ${data.mastery_signal.mastery_score}%</span>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // Update Footers: Disable hint, switch submit to Next Question
+        if (hintBtn) {
+            hintBtn.disabled = true;
+            hintBtn.classList.add('opacity-40');
+        }
+        if (submitBtn) submitBtn.classList.add('hidden');
+
+        const nextBtn = document.getElementById('quiz-next-btn');
+        if (nextBtn) {
+            nextBtn.classList.remove('hidden');
+            const isLast = activeQuizState.currentIndex + 1 >= activeQuizState.questions.length;
+            nextBtn.innerHTML = isLast ? `Complete Quiz & View Results <i class="fa-solid fa-trophy text-amber-400 ml-1"></i>` : `Next Question <i class="fa-solid fa-arrow-right ml-1"></i>`;
+        }
+
+    } catch (err) {
+        showToast(err.message || "Failed to submit answer", "error");
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `Submit Answer <i class="fa-solid fa-arrow-right"></i>`;
+        }
+    }
+}
+
+function nextQuizQuestion() {
+    if (!activeQuizState) return;
+    if (activeQuizState.currentIndex + 1 < activeQuizState.questions.length) {
+        activeQuizState.currentIndex++;
+        renderQuizQuestion();
+    } else {
+        completeQuiz();
+    }
+}
+
+async function completeQuiz() {
+    if (!activeQuizState) return;
+    const body = document.getElementById('quiz-body');
+    const progressSec = document.getElementById('quiz-progress-section');
+    const footer = document.getElementById('quiz-footer');
+
+    if (progressSec) progressSec.classList.add('hidden');
+    if (footer) footer.classList.add('hidden');
+
+    if (body) {
+        body.innerHTML = `
+            <div class="py-16 flex flex-col items-center justify-center text-center space-y-4">
+                <i class="fa-solid fa-spinner animate-spin text-3xl text-indigo-400"></i>
+                <div>
+                    <h4 class="text-white font-bold text-lg font-display">Compiling Mastery Report</h4>
+                    <p class="text-gray-400 text-xs mt-1">Updating knowledge graph and spaced-repetition schedules...</p>
+                </div>
+            </div>
+        `;
+    }
+
+    try {
+        await fetchAPI(`/quiz/${activeQuizState.quizId}/complete/`, { method: 'POST' });
+        const res = await fetchAPI(`/quiz/${activeQuizState.quizId}/results/`);
+        const results = await res.json();
+        if (!res.ok) throw new Error(results.detail || "Failed to retrieve quiz results.");
+
+        // Refresh global user stats in background
+        loadUserStats();
+
+        const scorePct = results.score_percent || 0;
+        const isPassing = scorePct >= 60;
+
+        body.innerHTML = `
+            <div class="space-y-6 pb-2">
+                <!-- Score Hero -->
+                <div class="bg-gradient-to-br from-[#121829] to-[#0A0D15] border border-[#1F293D] rounded-2xl p-6 text-center space-y-3 relative overflow-hidden">
+                    <div class="w-20 h-20 mx-auto rounded-full bg-gradient-to-tr ${isPassing ? 'from-emerald-500/20 to-indigo-500/20 border-emerald-500/40 text-emerald-400' : 'from-amber-500/20 to-red-500/20 border-amber-500/40 text-amber-400'} border-2 flex flex-col items-center justify-center font-extrabold shadow-lg">
+                        <span class="text-2xl font-display leading-none">${scorePct}%</span>
+                        <span class="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Score</span>
+                    </div>
+                    <div>
+                        <h3 class="text-white font-extrabold text-lg font-display">
+                            ${scorePct >= 80 ? 'Mastery Certified! 🌟' : (isPassing ? 'Assessment Completed! 👍' : 'Review Recommended 📚')}
+                        </h3>
+                        <p class="text-gray-400 text-xs mt-1">
+                            ${results.correct_count} of ${results.total_questions} questions answered correctly
+                        </p>
+                    </div>
+                    <!-- Mastery Delta Badge -->
+                    <div class="inline-flex items-center gap-2 bg-[#1A2234] border border-[#2B3752] px-3.5 py-1.5 rounded-full text-xs font-bold ${results.mastery_change >= 0 ? 'text-emerald-400' : 'text-amber-400'}">
+                        <i class="fa-solid ${results.mastery_change >= 0 ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down'}"></i>
+                        <span>Mastery Shift: ${results.mastery_change >= 0 ? '+' : ''}${results.mastery_change} points</span>
+                    </div>
+                </div>
+
+                <!-- Pedagogical Recommendation Banner -->
+                <div class="bg-[#0B101C] border border-[#1F293D] rounded-xl p-4 text-xs space-y-1.5">
+                    <div class="font-bold text-indigo-400 flex items-center gap-2">
+                        <i class="fa-solid fa-graduation-cap"></i> AI Coach Recommendation
+                    </div>
+                    <p class="text-gray-300 leading-relaxed">${results.recommendation}</p>
+                </div>
+
+                <!-- Topic Strengths & Weaknesses Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div class="bg-[#0D121F] border border-[#1E2638] rounded-xl p-3.5 space-y-2">
+                        <span class="font-bold text-emerald-400 flex items-center gap-1.5">
+                            <i class="fa-solid fa-circle-check"></i> Mastered Concepts
+                        </span>
+                        <div class="flex flex-wrap gap-1.5">
+                            ${(results.strong_topics && results.strong_topics.length > 0) ? 
+                                results.strong_topics.map(t => `<span class="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 px-2 py-0.5 rounded text-[11px] font-semibold">${t}</span>`).join('') :
+                                '<span class="text-gray-500 italic text-[11px]">Continue practicing to lock in strong concepts.</span>'
+                            }
+                        </div>
+                    </div>
+                    <div class="bg-[#0D121F] border border-[#1E2638] rounded-xl p-3.5 space-y-2">
+                        <span class="font-bold text-amber-400 flex items-center gap-1.5">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Concepts for Review
+                        </span>
+                        <div class="flex flex-wrap gap-1.5">
+                            ${(results.weak_topics && results.weak_topics.length > 0) ? 
+                                results.weak_topics.map(t => `<span class="bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded text-[11px] font-semibold">${t}</span>`).join('') :
+                                '<span class="text-emerald-400 text-[11px]">Zero weak spots detected! Perfect clarity.</span>'
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Footer -->
+                <div class="pt-2 flex items-center justify-end gap-3">
+                    <button onclick="startInteractiveQuiz()" class="text-xs bg-[#1A2030] hover:bg-[#232B40] text-indigo-300 border border-indigo-500/20 px-4 py-2.5 rounded-xl font-bold transition-all">
+                        <i class="fa-solid fa-rotate-right mr-1.5"></i> Retake Assessment
+                    </button>
+                    <button onclick="closeQuizModal()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-indigo-600/20">
+                        Return to Tutor <i class="fa-solid fa-arrow-right ml-1"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+
+    } catch (err) {
+        console.error("[Quiz Complete Error]", err);
+        showToast(err.message || "Failed to finalize quiz", "error");
+        closeQuizModal();
+    }
+}
+
+function closeQuizModal() {
+    const modal = document.getElementById('quiz-modal');
+    if (modal) modal.classList.add('hidden');
+    activeQuizState = null;
+}
+
 // --- EXPLICIT GLOBAL BINDINGS FOR INLINE HTML EVENT HANDLERS ---
 if (typeof window !== 'undefined') {
     window.setAuthMode = setAuthMode;
@@ -3474,6 +4012,13 @@ if (typeof window !== 'undefined') {
     window.sendMessage = sendMessage;
     window.startRecommendedLesson = startRecommendedLesson;
     window.startTopicLesson = startTopicLesson;
+    // Interactive Quiz Global Handlers
+    window.startInteractiveQuiz = startInteractiveQuiz;
+    window.closeQuizModal = closeQuizModal;
+    window.requestQuizHint = requestQuizHint;
+    window.submitQuizAnswer = submitQuizAnswer;
+    window.nextQuizQuestion = nextQuizQuestion;
+    window.selectQuizOption = selectQuizOption;
 }
 
 // Boot the application

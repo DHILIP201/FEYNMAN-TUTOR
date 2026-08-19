@@ -1,4 +1,4 @@
-﻿import sqlite3
+import sqlite3
 conn = sqlite3.connect('feynman.db')
 c = conn.cursor()
 
@@ -37,8 +37,13 @@ c.execute("""CREATE TABLE IF NOT EXISTS quiz_questions (
     canonical_topic TEXT,
     source_page INTEGER,
     difficulty TEXT NOT NULL DEFAULT 'medium',
-    order_index INTEGER NOT NULL DEFAULT 0
+    order_index INTEGER NOT NULL DEFAULT 0,
+    hints_requested INTEGER NOT NULL DEFAULT 0
 )""")
+try:
+    c.execute('ALTER TABLE quiz_questions ADD COLUMN hints_requested INTEGER NOT NULL DEFAULT 0')
+except Exception:
+    pass
 print('quiz_questions OK')
 
 c.execute("""CREATE TABLE IF NOT EXISTS quiz_answers (

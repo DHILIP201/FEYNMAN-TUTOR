@@ -283,9 +283,11 @@ class QuizQuestion(Base):
     source_page = Column(Integer, nullable=True)
     difficulty = Column(String, default="medium", nullable=False)  # easy | medium | hard
     order_index = Column(Integer, default=0, nullable=False)
+    hints_requested = Column(Integer, default=0, nullable=False)   # Progressive hint counter (pre-answer)
 
     quiz_session = relationship("QuizSession", back_populates="questions")
     answers = relationship("QuizAnswer", back_populates="question", cascade="all, delete-orphan")
+
 
 
 class QuizAnswer(Base):

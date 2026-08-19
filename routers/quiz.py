@@ -1,10 +1,19 @@
 ﻿"""
-Feynman AI -- Interactive PDF Quiz Mode Router
+Feynman AI -- Interactive PDF Quiz Mode Router (Hardened v2)
+
+ARCHITECTURE INVARIANTS:
+- All Gemini calls routed through GeminiGateway (multi-key failover, token accounting, rate limiting)
+- No fake fallback questions -- Gemini failure returns 503 so student is not deceived
+- Progressive hints persisted in QuizQuestion.hints_requested before answer submission
+- Mastery/spaced-repetition delegated to learner_memory_engine.record_learning_signal() exclusively
+- correct_answer NEVER sent to browser before submission
+- User isolation: every endpoint filters by current_user.id
+- Idempotent answer submission via UniqueConstraint(quiz_id, question_id)
 """
 
 import uuid
 import json
-import os
+import asyncio
 import re
 from datetime import datetime
 from typing import Optional, List
@@ -14,8 +23,15 @@ from sqlalchemy.orm import Session
 
 from database import get_db, User, QuizSession, QuizQuestion, QuizAnswer, ChatSession
 from security import get_current_user
+from ai_engine import gemini_gateway
+from ai_engine.memory.learner_memory_engine import LearnerMemoryEngine
 
+learner_memory_engine = LearnerMemoryEngine()
 router = APIRouter(tags=["Quiz Mode"])
+
+# ---------------------------------------------------------------------------
+# Pydantic Schemas
+# ---------------------------------------------------------------------------
 
 class QuizStartRequest(BaseModel):
     session_id: str = Field(..., description="Chat session ID with uploaded PDF")
@@ -29,80 +45,37 @@ class QuizAnswerRequest(BaseModel):
 class QuizHintRequest(BaseModel):
     question_id: int
 
-QUIZ_GENERATION_PROMPT = """You are an expert educational assessment designer.
 
-You have access to the following study material extracted from the student's uploaded PDF:
+# ---------------------------------------------------------------------------
+# HINT LEVELS (progressive -- never reveals correct answer directly)
+# ---------------------------------------------------------------------------
 
---- STUDY MATERIAL ---
-{context}
---- END MATERIAL ---
-
-Generate exactly {count} high-quality quiz questions based ONLY on the above material.
-
-CRITICAL RULES:
-- Every question must be answerable from the provided material.
-- Include question_type: "MCQ" (4 options A/B/C/D) or "TF" (True/False).
-- For MCQ: provide exactly 4 options as a list, with correct_answer being A, B, C, or D.
-- For TF: provide options ["True", "False"], with correct_answer being "True" or "False".
-- Each question must cite source_page (integer page number from the document).
-- explanation must be 1-2 sentences explaining why the answer is correct.
-- Vary difficulty: include ~30% easy, ~50% medium, ~20% hard.
-
-Return ONLY a valid JSON array with this exact structure:
-[
-  {
-    "question_text": "...",
-    "question_type": "MCQ",
-    "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
-    "correct_answer": "A",
-    "explanation": "...",
-    "canonical_topic": "...",
-    "source_page": 1,
-    "difficulty": "medium"
-  }
+HINT_LEVELS = [
+    "Think about the core concept described in the study material for this topic.",
+    "Consider what the material says about the mechanism or process involved. Re-read the relevant section.",
+    "The answer relates to a key definition given in the PDF. Focus on the specific terminology used.",
 ]
 
-Return only the JSON array, no markdown fences, no preamble."""
+def get_progressive_hint(question: QuizQuestion) -> dict:
+    """Returns the next hint in the progression and the new hint count."""
+    level = min(question.hints_requested, len(HINT_LEVELS) - 1)
+    topic = question.canonical_topic or "this concept"
+    hint_text = f"Hint {question.hints_requested + 1}: {HINT_LEVELS[level]} (Topic: {topic})"
+    is_final = question.hints_requested >= len(HINT_LEVELS) - 1
+    return {
+        "hint": hint_text,
+        "hint_number": question.hints_requested + 1,
+        "is_final_hint": is_final,
+        "question_id": question.id
+    }
 
 
-def generate_quiz_questions(context: str, count: int, topic_hint: str) -> List[dict]:
-    try:
-        import google.generativeai as genai
-        api_key = (os.getenv("GEMINI_API_KEY_1") or os.getenv("GEMINI_API_KEY_2")
-                   or os.getenv("GEMINI_API_KEY_3") or os.getenv("GEMINI_API_KEY") or "")
-        if not api_key:
-            raise ValueError("No Gemini API key available")
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        prompt = QUIZ_GENERATION_PROMPT.format(context=context[:8000], count=count)
-        response = model.generate_content(prompt)
-        raw = response.text.strip()
-        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.MULTILINE)
-        raw = re.sub(r"\s*```$", "", raw, flags=re.MULTILINE)
-        questions = json.loads(raw)
-        if not isinstance(questions, list):
-            raise ValueError("Expected JSON array")
-        return questions[:count]
-    except Exception as e:
-        print(f"[QUIZ GEN ERROR] {e}")
-        return [{
-            "question_text": f"What is a key concept in this study material about {topic_hint}?",
-            "question_type": "MCQ",
-            "options": [
-                "A. The material introduces core definitions and mechanisms",
-                "B. The material is purely theoretical with no practical application",
-                "C. The material covers unrelated topics",
-                "D. The material is an index only"
-            ],
-            "correct_answer": "A",
-            "explanation": "The uploaded study material introduces the core definitions and mechanisms of the topic.",
-            "canonical_topic": topic_hint,
-            "source_page": 1,
-            "difficulty": "easy"
-        }]
-
+# ---------------------------------------------------------------------------
+# RAG context retrieval
+# ---------------------------------------------------------------------------
 
 def fetch_rag_context(session_id: str, topic: str) -> str:
+    """Retrieve RAG chunks from the uploaded PDF for a given session."""
     try:
         from rag import get_relevant_chunks
         chunks = get_relevant_chunks(session_id, topic, top_k=12)
@@ -116,58 +89,109 @@ def fetch_rag_context(session_id: str, topic: str) -> str:
     return ""
 
 
-HINT_LEVELS = [
-    "Think about the core concept described in the study material for this topic.",
-    "Consider what the material says about the mechanism or process involved.",
-    "Review the relevant section of the PDF -- the answer relates to the key definition given.",
+# ---------------------------------------------------------------------------
+# Quiz generation via GeminiGateway (NOT direct genai calls)
+# ---------------------------------------------------------------------------
+
+QUIZ_SYSTEM_INSTRUCTION = """You are an expert educational assessment designer specializing in creating quiz questions from study materials.
+
+Your task is to generate quiz questions that are:
+1. STRICTLY grounded in the provided study material -- every question must be answerable from the material
+2. Pedagogically sound and clear
+3. Varied in difficulty (30% easy, 50% medium, 20% hard)
+4. Either MCQ (4 options) or True/False format only
+
+CRITICAL: Do not invent facts. Every question and correct answer must be directly derivable from the study material."""
+
+QUIZ_GENERATION_PROMPT_TEMPLATE = """Generate exactly {count} high-quality quiz questions based ONLY on this study material:
+
+--- STUDY MATERIAL ---
+{context}
+--- END MATERIAL ---
+
+Return ONLY a valid JSON array with this exact structure, no other text:
+[
+  {{
+    "question_text": "...",
+    "question_type": "MCQ",
+    "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
+    "correct_answer": "A",
+    "explanation": "1-2 sentence explanation of why this answer is correct, citing the material",
+    "canonical_topic": "specific topic this question tests",
+    "source_page": 1,
+    "difficulty": "medium"
+  }}
 ]
 
-def get_hint_for_question(question: QuizQuestion, hints_used: int) -> str:
-    level = min(hints_used, len(HINT_LEVELS) - 1)
-    topic_hint = question.canonical_topic or "this concept"
-    return f"Hint {hints_used + 1}: {HINT_LEVELS[level]} (Related topic: {topic_hint})"
+Rules:
+- question_type must be "MCQ" or "TF" only
+- For MCQ: 4 options labeled A. B. C. D., correct_answer is A/B/C/D
+- For TF: options are ["True", "False"], correct_answer is "True" or "False"
+- source_page is the integer page number from the document where this content appears"""
 
 
-def record_quiz_signal(db: Session, user_id: int, topic: str, is_correct: bool):
+async def generate_quiz_questions_via_gateway(context: str, count: int, topic_hint: str) -> List[dict]:
+    """
+    Generate quiz questions through the production GeminiGateway.
+    Raises HTTPException 503 on failure -- never returns fake/ungrounded questions.
+    """
+    prompt = QUIZ_GENERATION_PROMPT_TEMPLATE.format(
+        context=context[:8000],
+        count=count
+    )
+    req_id = str(uuid.uuid4())[:8]
+
+    raw = await gemini_gateway.generate(
+        contents=[prompt],
+        system_instruction=QUIZ_SYSTEM_INSTRUCTION,
+        temperature=0.3,  # Lower temperature for factual accuracy
+        request_id=f"quiz-{req_id}"
+    )
+
+    if not raw:
+        raise HTTPException(
+            status_code=503,
+            detail="Quiz generation failed -- all Gemini API keys are currently unavailable. Please retry in a few minutes."
+        )
+
+    # Parse and validate the JSON response
     try:
-        from database import LearningEvent, TopicMastery
-        event_type = "quiz_correct" if is_correct else "quiz_incorrect"
-        db.add(LearningEvent(
-            user_id=user_id,
-            canonical_topic=topic,
-            event_type=event_type,
-            metadata_json=json.dumps({"source": "pdf_quiz"})
-        ))
-        mastery_row = db.query(TopicMastery).filter(
-            TopicMastery.user_id == user_id,
-            TopicMastery.canonical_topic == topic
-        ).first()
-        if not mastery_row:
-            mastery_row = TopicMastery(
-                user_id=user_id,
-                canonical_topic=topic,
-                mastery_score=0,
-                confidence_score=0.5
-            )
-            db.add(mastery_row)
-        if is_correct:
-            mastery_row.mastery_score = min(100, mastery_row.mastery_score + 15)
-            mastery_row.confidence_score = min(1.0, mastery_row.confidence_score + 0.10)
-            mastery_row.correct_count += 1
-        else:
-            mastery_row.mastery_score = max(0, mastery_row.mastery_score - 10)
-            mastery_row.confidence_score = max(0.0, mastery_row.confidence_score - 0.15)
-            mastery_row.incorrect_count += 1
-        mastery_row.attempt_count += 1
-        mastery_row.last_studied_at = datetime.utcnow()
-        db.commit()
+        cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.MULTILINE)
+        cleaned = re.sub(r"\s*```$", "", cleaned, flags=re.MULTILINE)
+        questions = json.loads(cleaned)
+        if not isinstance(questions, list) or len(questions) == 0:
+            raise ValueError("Expected non-empty JSON array")
     except Exception as e:
-        print(f"[QUIZ MASTERY ERROR] {e}")
-        try:
-            db.rollback()
-        except Exception:
-            pass
+        print(f"[QUIZ GEN PARSE ERROR] Raw: {raw[:200]} | Error: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Quiz generation returned malformed data. Please retry."
+        )
 
+    # Validate each question has the required fields
+    valid_questions = []
+    for q in questions[:count]:
+        if (
+            q.get("question_text") and
+            q.get("question_type") in ("MCQ", "TF") and
+            q.get("options") and
+            q.get("correct_answer") and
+            q.get("explanation")
+        ):
+            valid_questions.append(q)
+
+    if not valid_questions:
+        raise HTTPException(
+            status_code=503,
+            detail="Quiz generation did not produce valid grounded questions. Please retry."
+        )
+
+    return valid_questions
+
+
+# ---------------------------------------------------------------------------
+# API Endpoints
+# ---------------------------------------------------------------------------
 
 @router.post("/quiz/start/")
 async def start_quiz(
@@ -175,6 +199,7 @@ async def start_quiz(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Generate a PDF-grounded quiz. Fails explicitly if no document or generation fails."""
     chat_session = db.query(ChatSession).filter(
         ChatSession.id == req.session_id,
         ChatSession.user_id == current_user.id
@@ -182,14 +207,23 @@ async def start_quiz(
     if not chat_session:
         raise HTTPException(status_code=404, detail="Session not found or access denied.")
     if not chat_session.has_doc:
-        raise HTTPException(status_code=400, detail="No study document found. Please upload a PDF first.")
+        raise HTTPException(
+            status_code=400,
+            detail="No study document found in this session. Please upload a PDF first."
+        )
 
-    topic_hint = chat_session.title or "the uploaded study material"
+    topic_hint = chat_session.title or "study material"
+
+    # Retrieve RAG context -- fail if no content available
     context = fetch_rag_context(req.session_id, topic_hint)
-    if not context:
-        context = f"Study material about {topic_hint}."
+    if not context or len(context.strip()) < 50:
+        raise HTTPException(
+            status_code=400,
+            detail="No document content available to generate questions from. The document may not have been indexed yet. Please wait a moment and retry."
+        )
 
-    raw_questions = generate_quiz_questions(context, req.question_count, topic_hint)
+    # Generate questions via GeminiGateway (raises 503 on failure -- no fake fallbacks)
+    raw_questions = await generate_quiz_questions_via_gateway(context, req.question_count, topic_hint)
 
     quiz_id = str(uuid.uuid4())
     quiz = QuizSession(
@@ -208,12 +242,13 @@ async def start_quiz(
             question_text=q.get("question_text", ""),
             question_type=q.get("question_type", "MCQ"),
             options_json=json.dumps(q.get("options", [])),
-            correct_answer=q.get("correct_answer", "A"),
+            correct_answer=q.get("correct_answer", "A"),   # SERVER-SIDE ONLY
             explanation=q.get("explanation", ""),
             canonical_topic=q.get("canonical_topic", topic_hint),
             source_page=q.get("source_page"),
             difficulty=q.get("difficulty", "medium"),
-            order_index=idx
+            order_index=idx,
+            hints_requested=0
         ))
 
     db.commit()
@@ -228,7 +263,9 @@ async def start_quiz(
             "canonical_topic": q.canonical_topic,
             "source_page": q.source_page,
             "difficulty": q.difficulty,
-            "order_index": q.order_index
+            "order_index": q.order_index,
+            "hints_used": 0
+            # correct_answer intentionally omitted
         }
         for q in sorted(quiz.questions, key=lambda x: x.order_index)
     ]
@@ -248,6 +285,7 @@ async def get_quiz_state(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Get current quiz state. Correct answers NEVER included before completion."""
     quiz = db.query(QuizSession).filter(
         QuizSession.id == quiz_id,
         QuizSession.user_id == current_user.id
@@ -258,7 +296,7 @@ async def get_quiz_state(
     answered_map = {}
     for q in quiz.questions:
         for a in q.answers:
-            answered_map[q.id] = {"is_correct": a.is_correct, "user_answer": a.user_answer}
+            answered_map[q.id] = {"is_correct": a.is_correct, "user_answer": a.user_answer, "hints_used": a.hints_used}
 
     questions_safe = [
         {
@@ -273,6 +311,7 @@ async def get_quiz_state(
             "answered": q.id in answered_map,
             "is_correct": answered_map[q.id]["is_correct"] if q.id in answered_map else None,
             "user_answer": answered_map[q.id]["user_answer"] if q.id in answered_map else None,
+            "hints_used": answered_map[q.id]["hints_used"] if q.id in answered_map else q.hints_requested,
         }
         for q in sorted(quiz.questions, key=lambda x: x.order_index)
     ]
@@ -295,6 +334,10 @@ async def submit_answer(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Submit answer. Mastery delegated to learner_memory_engine.record_learning_signal().
+    Idempotent -- duplicate submissions return existing result without re-processing.
+    """
     quiz = db.query(QuizSession).filter(
         QuizSession.id == quiz_id,
         QuizSession.user_id == current_user.id
@@ -311,21 +354,29 @@ async def submit_answer(
     if not question:
         raise HTTPException(status_code=404, detail="Question not found in this quiz.")
 
-    existing_answer = db.query(QuizAnswer).filter(
+    # Idempotency: check if already answered
+    existing = db.query(QuizAnswer).filter(
         QuizAnswer.quiz_id == quiz_id,
         QuizAnswer.question_id == req.question_id
     ).first()
-    if existing_answer:
+    if existing:
+        # Return same result without re-processing mastery
         return {
-            "is_correct": existing_answer.is_correct,
-            "user_answer": existing_answer.user_answer,
+            "is_correct": existing.is_correct,
+            "user_answer": existing.user_answer,
             "correct_answer": question.correct_answer,
             "explanation": question.explanation,
             "source_page": question.source_page,
-            "feedback": "Correct!" if existing_answer.is_correct else "Not quite.",
-            "already_answered": True
+            "feedback": "Correct!" if existing.is_correct else "Not quite.",
+            "already_answered": True,
+            "quiz_progress": {
+                "answered": quiz.answered_count,
+                "total": quiz.total_questions,
+                "score_percent": quiz.score_percent
+            }
         }
 
+    # Evaluate answer
     user_ans = req.answer.strip().upper()
     correct_ans = question.correct_answer.strip().upper()
     if question.question_type == "TF":
@@ -334,14 +385,16 @@ async def submit_answer(
         user_letter = user_ans[0] if user_ans else ""
         is_correct = user_letter == correct_ans[0]
 
+    # Persist answer -- copy hints_requested at submission time
     try:
-        db.add(QuizAnswer(
+        answer_record = QuizAnswer(
             quiz_id=quiz_id,
             question_id=req.question_id,
             user_answer=req.answer,
             is_correct=is_correct,
-            hints_used=0
-        ))
+            hints_used=question.hints_requested  # Snapshot hint count at submission
+        )
+        db.add(answer_record)
         quiz.answered_count += 1
         if is_correct:
             quiz.correct_count += 1
@@ -349,23 +402,39 @@ async def submit_answer(
             quiz.incorrect_count += 1
         if quiz.total_questions > 0:
             quiz.score_percent = round((quiz.correct_count / quiz.total_questions) * 100, 1)
+
+        # Track weak topics at quiz level
+        if not is_correct and question.canonical_topic:
+            weak = json.loads(quiz.weak_topics or "[]")
+            if question.canonical_topic not in weak:
+                weak.append(question.canonical_topic)
+                quiz.weak_topics = json.dumps(weak)
+
         db.commit()
-        record_quiz_signal(db, current_user.id, question.canonical_topic or "Study Material", is_correct)
+
     except Exception as e:
         db.rollback()
         if "uq_quiz_question_answer" not in str(e) and "UNIQUE constraint" not in str(e):
             print(f"[QUIZ ANSWER ERROR] {e}")
             raise HTTPException(status_code=500, detail="Failed to record answer.")
 
-    if not is_correct and question.canonical_topic:
-        try:
-            weak = json.loads(quiz.weak_topics or "[]")
-            if question.canonical_topic not in weak:
-                weak.append(question.canonical_topic)
-                quiz.weak_topics = json.dumps(weak)
-                db.commit()
-        except Exception:
-            pass
+    # Delegate mastery + spaced repetition to the authoritative memory engine
+    # evaluation_id ensures idempotency even on network retries
+    evaluation_id = f"quiz-{quiz_id}-q{req.question_id}"
+    topic = question.canonical_topic or topic_hint_from_quiz(quiz)
+    try:
+        mastery_obj, signal_summary = learner_memory_engine.record_learning_signal(
+            db=db,
+            user_id=current_user.id,
+            canonical_topic=topic,
+            is_correct=is_correct,
+            weak_concept=question.canonical_topic if not is_correct else None,
+            evaluation_id=evaluation_id
+        )
+        mastery_delta = signal_summary.get("mastery_score", 0) - (mastery_obj.mastery_score - (15 if is_correct else -10))
+    except Exception as e:
+        print(f"[QUIZ MASTERY SIGNAL ERROR] {e}")
+        signal_summary = {}
 
     return {
         "is_correct": is_correct,
@@ -379,8 +448,20 @@ async def submit_answer(
             "answered": quiz.answered_count,
             "total": quiz.total_questions,
             "score_percent": quiz.score_percent
+        },
+        "mastery_signal": {
+            "topic": topic,
+            "mastery_score": signal_summary.get("mastery_score"),
+            "next_review_at": signal_summary.get("next_review_at")
         }
     }
+
+
+def topic_hint_from_quiz(quiz: QuizSession) -> str:
+    """Extract a topic hint from the quiz's document session title."""
+    if quiz.document_session_id:
+        return quiz.document_session_id
+    return "Study Material"
 
 
 @router.post("/quiz/{quiz_id}/hint/")
@@ -390,6 +471,10 @@ async def get_hint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Get a progressive hint. Persists hint count in QuizQuestion.hints_requested.
+    INVARIANT: Only available during active quiz for unanswered questions.
+    """
     quiz = db.query(QuizSession).filter(
         QuizSession.id == quiz_id,
         QuizSession.user_id == current_user.id
@@ -397,7 +482,10 @@ async def get_hint(
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found.")
     if quiz.status != "active":
-        raise HTTPException(status_code=400, detail="Hints are only available during an active quiz.")
+        raise HTTPException(
+            status_code=400,
+            detail="Hints are only available during an active quiz session."
+        )
 
     question = db.query(QuizQuestion).filter(
         QuizQuestion.id == req.question_id,
@@ -406,17 +494,25 @@ async def get_hint(
     if not question:
         raise HTTPException(status_code=404, detail="Question not found.")
 
+    # Block hints on already-answered questions
     existing = db.query(QuizAnswer).filter(
         QuizAnswer.quiz_id == quiz_id,
         QuizAnswer.question_id == req.question_id
     ).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Question already answered. Hints are for unanswered questions only.")
+        raise HTTPException(
+            status_code=400,
+            detail="This question has already been answered. Hints are only for unanswered questions."
+        )
 
-    return {
-        "hint": get_hint_for_question(question, 0),
-        "question_id": req.question_id
-    }
+    # Build hint BEFORE incrementing (so hint 1 shows level 0, hint 2 shows level 1, etc.)
+    hint_data = get_progressive_hint(question)
+
+    # Increment hint counter persistently
+    question.hints_requested = min(question.hints_requested + 1, len(HINT_LEVELS))
+    db.commit()
+
+    return hint_data
 
 
 @router.post("/quiz/{quiz_id}/complete/")
@@ -425,6 +521,7 @@ async def complete_quiz(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Finalize the quiz."""
     quiz = db.query(QuizSession).filter(
         QuizSession.id == quiz_id,
         QuizSession.user_id == current_user.id
@@ -445,6 +542,7 @@ async def get_quiz_results(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Full results after quiz completion. Correct answers safe to expose post-completion."""
     quiz = db.query(QuizSession).filter(
         QuizSession.id == quiz_id,
         QuizSession.user_id == current_user.id
@@ -466,24 +564,27 @@ async def get_quiz_results(
             "question_type": q.question_type,
             "options": json.loads(q.options_json),
             "user_answer": answered.user_answer if answered else None,
-            "correct_answer": q.correct_answer,
+            "correct_answer": q.correct_answer,   # Safe post-completion
             "is_correct": answered.is_correct if answered else False,
             "explanation": q.explanation,
             "canonical_topic": q.canonical_topic,
-            "source_page": q.source_page
+            "source_page": q.source_page,
+            "hints_used": answered.hints_used if answered else q.hints_requested
         })
         if answered and answered.is_correct and q.canonical_topic:
             strong_topics.add(q.canonical_topic)
 
     score = quiz.score_percent
     if score >= 80:
-        recommendation = "Excellent! Strong mastery. Consider attempting the advanced quiz."
+        recommendation = "Excellent! Strong mastery of this material. Consider attempting the advanced quiz or moving to the next topic."
     elif score >= 60:
         weak_str = ", ".join(weak_topics[:3]) if weak_topics else "highlighted topics"
         recommendation = f"Good progress! Review: {weak_str} before your next session."
     else:
         weak_str = ", ".join(weak_topics[:3]) if weak_topics else "the core concepts"
-        recommendation = f"More review needed. Focus on: {weak_str} using the Feynman tutor before retaking."
+        recommendation = f"More review needed. Study: {weak_str} with the Feynman tutor before retaking this quiz."
+
+    mastery_change = round(quiz.correct_count * 15 - quiz.incorrect_count * 10, 1)
 
     return {
         "quiz_id": quiz_id,
@@ -492,7 +593,7 @@ async def get_quiz_results(
         "correct_count": quiz.correct_count,
         "incorrect_count": quiz.incorrect_count,
         "score_percent": quiz.score_percent,
-        "mastery_change": round(quiz.correct_count * 15 - quiz.incorrect_count * 10, 1),
+        "mastery_change": mastery_change,
         "strong_topics": list(strong_topics - set(weak_topics)),
         "weak_topics": weak_topics,
         "recommendation": recommendation,
@@ -506,6 +607,7 @@ async def get_quiz_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Past quiz sessions for this user."""
     quizzes = db.query(QuizSession).filter(
         QuizSession.user_id == current_user.id
     ).order_by(QuizSession.started_at.desc()).limit(20).all()
