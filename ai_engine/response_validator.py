@@ -408,15 +408,23 @@ class ResponseValidator:
         cognitive_trace = repaired.get("cognitive_trace", "")
         cognitive_trace_lower = cognitive_trace.lower()
 
-        # Determine explicit pedagogical mode
-        if "### step 1" in explanation.lower() or "### step 2" in explanation.lower() or "step by step" in cognitive_trace_lower or "step_by_step" in str(repaired.get("lesson_mode", "")).lower():
+        # Determine explicit pedagogical mode — STRICTLY from lesson_mode field
+        # INVARIANT B: STEP_BY_STEP is OPT-IN ONLY. Never infer it from text patterns.
+        explicit_mode = str(repaired.get("lesson_mode", "")).upper().strip()
+        if explicit_mode == "STEP_BY_STEP":
             mode = LessonMode.STEP_BY_STEP
-        elif "simplify" in cognitive_trace_lower or "simplify" in str(repaired.get("lesson_mode", "")).lower() or (len(explanation.split()) < 90 and "imagine" in explanation.lower()):
+        elif explicit_mode == "SIMPLIFY":
             mode = LessonMode.SIMPLIFY
-        elif "analogy" in cognitive_trace_lower or "analogy" in str(repaired.get("lesson_mode", "")).lower() or "analogy" in explanation.lower() or "think of a" in explanation.lower():
+        elif explicit_mode == "ANALOGY":
             mode = LessonMode.ANALOGY
         else:
-            mode = LessonMode.STANDARD
+            # Fallback: read from cognitive_trace only for SIMPLIFY/ANALOGY (never STEP_BY_STEP)
+            if "simplify" in cognitive_trace_lower or "simplify" in str(repaired.get("lesson_mode", "")).lower():
+                mode = LessonMode.SIMPLIFY
+            elif "analogy" in cognitive_trace_lower or "analogy" in str(repaired.get("lesson_mode", "")).lower():
+                mode = LessonMode.ANALOGY
+            else:
+                mode = LessonMode.STANDARD
         repaired["lesson_mode"] = mode
 
         # Extract clean canonical topic from context with fallback inheritance
@@ -507,35 +515,74 @@ class ResponseValidator:
                     matched_viz = entry["mermaid"]
                     break
 
+        # MODE-SPECIFIC TOPIC DIAGRAM RESOLUTION
+        # Each mode produces a diagram semantically tied to canonical_topic.
+        # INVARIANT A: Never reuse generic placeholder diagrams.
         if mode == LessonMode.SIMPLIFY:
-            if "neural" in topic_and_text or "ai" in topic_and_text or "model" in topic_and_text:
-                viz = """graph LR;\n  Data["Raw Input"] --> Pattern["Pattern Detection"] --> Decision["Clear Decision"];"""
-            elif "search" in topic_and_text or "sort" in topic_and_text:
-                viz = """graph LR;\n  Items["Unsorted Items"] --> Rule["Simple Rule"] --> Result["Found Result"];"""
+            # Simplified 3-4 node version of the SAME topic (never generic)
+            if any(k in topic_lower for k in ["neural", "perceptron", "deep learning", "mlp", "ann"]):
+                viz = 'graph LR;\n  Input["Input Data"] --> NN["Neural Network Layers"];\n  NN --> Learn["Learn Patterns"];\n  Learn --> Pred["Prediction"];'
+            elif any(k in topic_lower for k in ["backprop", "gradient", "chain rule"]):
+                viz = 'graph LR;\n  Loss["Calculate Loss"] --> Grad["Compute Gradients"];\n  Grad --> Update["Update Weights"];'
+            elif any(k in topic_lower for k in ["transformer", "attention", "bert", "gpt"]):
+                viz = 'graph LR;\n  Token["Input Tokens"] --> Attn["Self-Attention"];\n  Attn --> Out["Contextual Output"];'
+            elif any(k in topic_lower for k in ["binary search", "search"]):
+                viz = 'graph LR;\n  Array["Sorted Array"] --> Mid["Check Midpoint"];\n  Mid --> Found["Target Found"];'
+            elif any(k in topic_lower for k in ["sort", "merge sort", "quicksort"]):
+                viz = 'graph LR;\n  Unsorted["Unsorted Data"] --> Split["Divide"];\n  Split --> Sorted["Sorted Output"];'
+            elif any(k in topic_lower for k in ["activation", "relu", "sigmoid"]):
+                viz = 'graph LR;\n  Input["Weighted Sum z"] --> Act["Activation f(z)"];\n  Act --> Output["Neuron Output"];'
+            elif any(k in topic_lower for k in ["gradient descent", "optimizer", "adam", "sgd"]):
+                viz = 'graph LR;\n  Params["Current Params"] --> Grad["Gradient Slope"];\n  Grad --> Better["Improved Params"];'
             elif matched_viz:
+                # Use 3 key nodes extracted from the full registry diagram
                 viz = matched_viz
             else:
-                viz = """graph LR;\n  Input["Raw Information"] --> Rules["Simple Filter"] --> Output["Clear Result"];"""
+                viz = f'graph LR;\n  Input["{canonical_topic} Input"] --> Process["{canonical_topic} Core Logic"];\n  Process --> Output["Result"];'
+
         elif mode == LessonMode.ANALOGY:
-            if "kitchen" in topic_and_text or "chef" in topic_and_text or "restaurant" in topic_and_text:
-                viz = """graph LR;\n  Order["Customer Order"] --> Kitchen["Chef Prepares"] --> Meal["Served Dish"];"""
-            elif "team" in topic_and_text or "factory" in topic_and_text or "assembly" in topic_and_text:
-                viz = """graph LR;\n  Worker1["Station 1: Prep"] --> Worker2["Station 2: Assembly"] --> Product["Final Product"];"""
+            # Diagram of the actual analogy in the lesson (based on analogy keywords in the text)
+            text_lower = explanation.lower()
+            if "kitchen" in text_lower or "chef" in text_lower or "cooking" in text_lower:
+                viz = 'graph LR;\n  Ingredients["Raw Ingredients"] --> Chef["Chef Applies Recipe"];\n  Chef --> Dish["Finished Dish"];'
+            elif "library" in text_lower or "librarian" in text_lower or "catalog" in text_lower:
+                viz = 'graph LR;\n  Request["Book Request"] --> Catalog["Library Catalog Search"];\n  Catalog --> Book["Book Retrieved"];'
+            elif "factory" in text_lower or "assembly" in text_lower or "production line" in text_lower:
+                viz = 'graph LR;\n  Raw["Raw Materials"] --> Assembly["Assembly Line Stages"];\n  Assembly --> Product["Finished Product"];'
+            elif "brain" in text_lower or "neuron" in text_lower or "synapse" in text_lower:
+                viz = 'graph LR;\n  Signal["Input Signal"] --> Neuron["Neurons Fire"];\n  Neuron --> Thought["Learned Response"];'
+            elif "teacher" in text_lower or "student" in text_lower or "classroom" in text_lower:
+                viz = 'graph LR;\n  Lesson["Teacher Explains"] --> Practice["Student Practices"];\n  Practice --> Mastery["Skill Mastered"];'
             elif matched_viz:
                 viz = matched_viz
             else:
-                viz = """graph LR;\n  Start["Everyday Object"] --> Action["Relatable Process"] --> End["Intuitive Result"];"""
+                t = canonical_topic
+                viz = f'graph LR;\n  RealWorld["Familiar Concept"] --> Mapping["{t} Parallel"];\n  Mapping --> Insight["{t} Understood"];'
+
         elif mode == LessonMode.STEP_BY_STEP:
-            if "neural" in topic_and_text:
-                viz = """graph TD;\n  S1["Step 1: Input Features"] --> S2["Step 2: Layer Processing"];\n  S2 --> S3["Step 3: Activation & Output"];\n  S3 --> S4["Step 4: Error & Learning"];\n  S4 --> S5["Step 5: Full Neural System"];"""
+            # Topic-specific 5-step learning progression
+            if any(k in topic_lower for k in ["neural", "perceptron", "deep learning", "mlp"]):
+                viz = 'graph TD;\n  S1["Step 1: Understand Neurons & Weights"] --> S2["Step 2: Forward Pass — Compute Predictions"];\n  S2 --> S3["Step 3: Measure Loss — How Wrong Were We?"];\n  S3 --> S4["Step 4: Backpropagation — Compute Gradients"];\n  S4 --> S5["Step 5: Update Weights — Optimizer Step"];'
+            elif any(k in topic_lower for k in ["backprop", "gradient", "chain rule"]):
+                viz = 'graph TD;\n  S1["Step 1: Compute Forward Pass Output"] --> S2["Step 2: Calculate Loss at Output Layer"];\n  S2 --> S3["Step 3: Apply Chain Rule at Each Layer"];\n  S3 --> S4["Step 4: Accumulate Partial Derivatives"];\n  S4 --> S5["Step 5: Update Parameters with Optimizer"];'
+            elif any(k in topic_lower for k in ["transformer", "attention", "bert", "gpt"]):
+                viz = 'graph TD;\n  S1["Step 1: Tokenize Input & Embed"] --> S2["Step 2: Add Positional Encoding"];\n  S2 --> S3["Step 3: Compute Q, K, V Matrices"];\n  S3 --> S4["Step 4: Multi-Head Self-Attention"];\n  S4 --> S5["Step 5: Feed-Forward & Layer Norm"];'
+            elif any(k in topic_lower for k in ["binary search"]):
+                viz = 'graph TD;\n  S1["Step 1: Set Low = 0, High = N-1"] --> S2["Step 2: Compute Mid = (Low+High) / 2"];\n  S2 --> S3["Step 3: Compare arr[Mid] with Target"];\n  S3 --> S4["Step 4: Eliminate Half the Array"];\n  S4 --> S5["Step 5: Repeat Until Found or Low > High"];'
+            elif any(k in topic_lower for k in ["sort", "merge sort", "quicksort"]):
+                viz = 'graph TD;\n  S1["Step 1: Divide Array into Two Halves"] --> S2["Step 2: Recursively Sort Left Half"];\n  S2 --> S3["Step 3: Recursively Sort Right Half"];\n  S3 --> S4["Step 4: Merge Sorted Halves"];\n  S4 --> S5["Step 5: Return Fully Sorted Array"];'
+            elif matched_viz:
+                viz = matched_viz
             else:
-                viz = f"""graph TD;\n  S1["Step 1: Foundations"] --> S2["Step 2: Mechanics"];\n  S2 --> S3["Step 3: Application"];\n  S3 --> S4["Step 4: Mastery of {canonical_topic}"];"""
+                t = canonical_topic
+                viz = f'graph TD;\n  S1["Step 1: Understand {t} Fundamentals"] --> S2["Step 2: Learn Core Mechanism"];\n  S2 --> S3["Step 3: Apply {t} to an Example"];\n  S3 --> S4["Step 4: Handle Edge Cases"];\n  S4 --> S5["Step 5: Master {t} in Practice"];'
+
         else:
-            # Standard Mode: Topic-matched or AI-generated valid flowchart
+            # Standard Mode: Full topic-matched diagram from registry, or AI-generated valid flowchart
             if matched_viz:
                 viz = matched_viz
             elif not viz or ("graph " not in viz and "flowchart " not in viz) or "Fallback" in viz or "Input Transformation" in viz:
-                viz = f"""graph TD;\n  In["Input Data"] --> Process["{canonical_topic} Processing"];\n  Process --> Out["Verified Output"];"""
+                viz = f'graph TD;\n  In["Input Data"] --> Process["{canonical_topic} Processing"];\n  Process --> Out["Verified Output"];'
 
         repaired["visual_intuition"] = viz
         repaired.setdefault("estimated_study_time", 4)

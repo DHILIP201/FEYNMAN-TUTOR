@@ -37,6 +37,8 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
+    refresh_token_hash = Column(String, nullable=True)           # SHA-256 of issued refresh token
+    refresh_token_expires_at = Column(DateTime, nullable=True)   # Expiry of current refresh token
 
     sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
     learner_profile = relationship("LearnerProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
@@ -45,6 +47,7 @@ class User(Base):
     subscription = relationship("UserSubscription", back_populates="user", uselist=False, cascade="all, delete-orphan")
     notification_preferences = relationship("NotificationPreference", back_populates="user", uselist=False, cascade="all, delete-orphan")
     certificates = relationship("CertificateRecord", back_populates="user", cascade="all, delete-orphan")
+    quiz_sessions = relationship("QuizSession", cascade="all, delete-orphan")
 
 
 class ChatSession(Base):
@@ -238,6 +241,71 @@ class CertificateRecord(Base):
     revoked = Column(Boolean, default=False, nullable=False)
 
     user = relationship("User", back_populates="certificates")
+
+
+# ----------------------------------------------------
+# TRACK D: QUIZ MODE
+# ----------------------------------------------------
+
+class QuizSession(Base):
+    """An interactive PDF-grounded quiz session."""
+    __tablename__ = "quiz_sessions"
+
+    id = Column(String, primary_key=True, index=True)          # UUID
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    document_session_id = Column(String, ForeignKey("chat_sessions.id"), nullable=True)  # Source PDF session
+    status = Column(String, default="active", nullable=False)  # active | completed | abandoned
+    total_questions = Column(Integer, default=0, nullable=False)
+    answered_count = Column(Integer, default=0, nullable=False)
+    correct_count = Column(Integer, default=0, nullable=False)
+    incorrect_count = Column(Integer, default=0, nullable=False)
+    score_percent = Column(Float, default=0.0, nullable=False)
+    weak_topics = Column(Text, default="[]", nullable=False)   # JSON list
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User")
+    questions = relationship("QuizQuestion", back_populates="quiz_session", cascade="all, delete-orphan")
+
+
+class QuizQuestion(Base):
+    """A single question within a quiz session. Answer key is server-side only."""
+    __tablename__ = "quiz_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    quiz_id = Column(String, ForeignKey("quiz_sessions.id"), nullable=False, index=True)
+    question_text = Column(Text, nullable=False)
+    question_type = Column(String, default="MCQ", nullable=False)  # MCQ | TF
+    options_json = Column(Text, nullable=False)   # JSON list of option strings
+    correct_answer = Column(String, nullable=False)  # NEVER exposed to browser before submission
+    explanation = Column(Text, nullable=False)
+    canonical_topic = Column(String, nullable=True)
+    source_page = Column(Integer, nullable=True)
+    difficulty = Column(String, default="medium", nullable=False)  # easy | medium | hard
+    order_index = Column(Integer, default=0, nullable=False)
+
+    quiz_session = relationship("QuizSession", back_populates="questions")
+    answers = relationship("QuizAnswer", back_populates="question", cascade="all, delete-orphan")
+
+
+class QuizAnswer(Base):
+    """A student's answer to a quiz question. Unique per (quiz_id, question_id) for idempotency."""
+    __tablename__ = "quiz_answers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    quiz_id = Column(String, ForeignKey("quiz_sessions.id"), nullable=False, index=True)
+    question_id = Column(Integer, ForeignKey("quiz_questions.id"), nullable=False, index=True)
+    user_answer = Column(String, nullable=False)
+    is_correct = Column(Boolean, nullable=False)
+    hints_used = Column(Integer, default=0, nullable=False)
+    answered_at = Column(DateTime, default=datetime.utcnow)
+
+    question = relationship("QuizQuestion", back_populates="answers")
+
+    # Unique constraint: one answer per question per quiz
+    __table_args__ = (
+        __import__('sqlalchemy').UniqueConstraint('quiz_id', 'question_id', name='uq_quiz_question_answer'),
+    )
 
 
 # Create tables

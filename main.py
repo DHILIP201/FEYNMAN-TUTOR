@@ -42,7 +42,10 @@ from database import (
     UserSubscription,
     NotificationPreference,
     CertificateRecord,
-    TelemetryLog
+    TelemetryLog,
+    QuizSession,
+    QuizQuestion,
+    QuizAnswer
 )
 from ai_engine import (
     feynman_engine, 
@@ -56,7 +59,7 @@ from ai_engine.memory.subject_catalog import get_subjects as _get_subjects, SUBJ
 from routers.certificates import generate_certificate, verify_certificate, get_learner_report
 from routers.admin import router as admin_router
 from routers.billing import router as billing_router
-
+from routers.quiz import router as quiz_router
 
 from security import (
     get_password_hash, 
@@ -66,7 +69,9 @@ from security import (
     get_current_user,
     check_password_strength,
     validate_email_format,
-    hash_token
+    hash_token,
+    create_refresh_token,
+    decode_refresh_token
 )
 from rag import add_document_to_rag, query_rag
 from observability.telemetry import (
@@ -165,11 +170,16 @@ all_allowed_origins = list(set(default_origins + custom_origins))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=all_allowed_origins,
+    allow_origins=[
+        "https://feynman-tutor-omega.vercel.app",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",
+        os.getenv("FRONTEND_URL", "https://feynman-tutor-omega.vercel.app"),
+    ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID", "X-Process-Time-Ms"],
 )
 
 
@@ -423,7 +433,14 @@ async def signup(user_data: UserSignup, request: Request, db: Session = Depends(
     
     if is_dev:
         access_token = create_access_token(data={"sub": new_user.email})
-        return {
+        refresh_token = create_refresh_token(data={"sub": new_user.email})
+        
+        # Store hashed refresh token server-side
+        new_user.refresh_token_hash = hash_token(refresh_token)
+        new_user.refresh_token_expires_at = datetime.utcnow() + timedelta(days=7)
+        db.commit()
+        
+        response_data = {
             "message": "User registered successfully (Development Mode).",
             "access_token": access_token,
             "user": {
@@ -431,6 +448,19 @@ async def signup(user_data: UserSignup, request: Request, db: Session = Depends(
                 "email": new_user.email
             }
         }
+        
+        from fastapi.responses import JSONResponse
+        resp = JSONResponse(content=response_data)
+        resp.set_cookie(
+            key="feynman_refresh",
+            value=refresh_token,
+            httponly=True,
+            secure=True,
+            samesite="none",
+            max_age=7 * 24 * 3600,
+            path="/"
+        )
+        return resp
         
     # Generate verification token (Production Mode)
     verification_token = create_access_token(data={"sub": new_user.email, "verify": True})
@@ -552,9 +582,16 @@ async def login(credentials: UserLogin, request: Request, db: Session = Depends(
     user.last_login = datetime.utcnow()
     db.commit()
     
-    # Create JWT token
+    # Issue tokens
     access_token = create_access_token(data={"sub": user.email})
-    return {
+    refresh_token = create_refresh_token(data={"sub": user.email})
+    
+    # Store hashed refresh token server-side
+    user.refresh_token_hash = hash_token(refresh_token)
+    user.refresh_token_expires_at = datetime.utcnow() + timedelta(days=7)
+    db.commit()
+    
+    response_data = {
         "access_token": access_token,
         "token_type": "bearer",
         "user": {
@@ -562,6 +599,19 @@ async def login(credentials: UserLogin, request: Request, db: Session = Depends(
             "email": user.email
         }
     }
+    
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse(content=response_data)
+    resp.set_cookie(
+        key="feynman_refresh",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="none",  # Required for cross-origin (Vercel <-> Render)
+        max_age=7 * 24 * 3600,
+        path="/"
+    )
+    return resp
 
 @app.post("/auth/guest/")
 async def guest_login(request: Request, db: Session = Depends(get_db)):
@@ -745,58 +795,64 @@ async def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db
 
     return {"message": "Password updated successfully."}
 
-@app.get("/auth/verify/", response_class=HTMLResponse)
-async def verify_email(token: str, db: Session = Depends(get_db)):
-    payload = decode_access_token(token)
-    if not payload or not payload.get("verify"):
-        return """
-        <html>
-            <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #F9FAFB;">
-                <div style="background-color: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; max-width: 400px;">
-                    <div style="font-size: 48px; color: #EF4444; margin-bottom: 20px;">⚠️</div>
-                    <h2 style="color: #111827; margin-bottom: 10px;">Verification Failed</h2>
-                    <p style="color: #6B7280; font-size: 14px; line-height: 1.5;">The verification link is invalid or has expired.</p>
-                </div>
-            </body>
-        </html>
-        """
+@app.post("/auth/refresh/")
+async def refresh_access_token(request: Request, db: Session = Depends(get_db)):
+    """Exchange a valid HttpOnly refresh cookie for a new access token."""
+    refresh_token = request.cookies.get("feynman_refresh")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="No refresh token provided.")
+    
+    payload = decode_refresh_token(refresh_token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token.")
     
     email = payload.get("sub")
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        return "User not found."
-        
-    # Verify hashed token match
-    token_hash = hash_token(token)
-    if user.verification_token_hash != token_hash:
-        return """
-        <html>
-            <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #F9FAFB;">
-                <div style="background-color: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; max-width: 400px;">
-                    <div style="font-size: 48px; color: #EF4444; margin-bottom: 20px;">⚠️</div>
-                    <h2 style="color: #111827; margin-bottom: 10px;">Already Verified or Invalid</h2>
-                    <p style="color: #6B7280; font-size: 14px; line-height: 1.5;">This link has already been used or is no longer valid.</p>
-                </div>
-            </body>
-        </html>
-        """
-        
-    user.email_verified = True
-    user.verification_token_hash = None
+        raise HTTPException(status_code=401, detail="User not found.")
+    
+    # Validate token hash matches
+    if not user.refresh_token_hash or user.refresh_token_hash != hash_token(refresh_token):
+        raise HTTPException(status_code=401, detail="Refresh token revoked or invalid.")
+    
+    if user.refresh_token_expires_at and user.refresh_token_expires_at < datetime.utcnow():
+        raise HTTPException(status_code=401, detail="Refresh token expired.")
+    
+    # Issue new access token + rotate refresh token
+    new_access_token = create_access_token(data={"sub": user.email})
+    new_refresh_token = create_refresh_token(data={"sub": user.email})
+    
+    user.refresh_token_hash = hash_token(new_refresh_token)
+    user.refresh_token_expires_at = datetime.utcnow() + timedelta(days=7)
     db.commit()
     
-    return """
-    <html>
-        <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #F9FAFB;">
-            <div style="background-color: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; max-width: 400px;">
-                <div style="font-size: 48px; color: #10B981; margin-bottom: 20px;">✅</div>
-                <h2 style="color: #111827; margin-bottom: 10px;">Verification Successful!</h2>
-                <p style="color: #6B7280; font-size: 14px; line-height: 1.5; margin-bottom: 24px;">Your email address has been successfully verified. You can now close this tab and return to the Feynman Tutor AI to sign in.</p>
-                <div style="color: #6366F1; font-weight: 600; font-size: 14px;">Happy Active Learning!</div>
-            </div>
-        </body>
-    </html>
-    """
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse(content={
+        "access_token": new_access_token,
+        "token_type": "bearer"
+    })
+    resp.set_cookie(
+        key="feynman_refresh",
+        value=new_refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=7 * 24 * 3600,
+        path="/"
+    )
+    return resp
+
+@app.post("/auth/logout/")
+async def logout(request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Revoke refresh token server-side and clear the HttpOnly cookie."""
+    current_user.refresh_token_hash = None
+    current_user.refresh_token_expires_at = None
+    db.commit()
+    
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse(content={"message": "Logged out successfully."})
+    resp.delete_cookie(key="feynman_refresh", path="/", samesite="none", secure=True)
+    return resp
 
 # --- CHAT SESSION ENDPOINTS ---
 @app.get("/sessions/")
@@ -1643,6 +1699,7 @@ def readiness_check():
 # ── Track C Routers ──────────────────────────────────────────────────────────
 app.include_router(admin_router)
 app.include_router(billing_router)
+app.include_router(quiz_router)
 
 
 # ── Track C-3: Learning Reports & Certificates ──────────────────────────────

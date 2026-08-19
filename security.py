@@ -20,7 +20,8 @@ load_dotenv()
 
 SECRET_KEY = os.getenv("JWT_SECRET", "super-secret-feynman-key-1337-prep")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 security_scheme = HTTPBearer()
 
@@ -86,6 +87,27 @@ def decode_access_token(token: str) -> Optional[dict]:
         return payload
     except Exception as e:
         print(f"[JWT DECODE ERROR] {e}")
+        return None
+
+def create_refresh_token(data: dict) -> str:
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "type": "refresh"})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    if isinstance(encoded_jwt, bytes):
+        encoded_jwt = encoded_jwt.decode('utf-8')
+    return encoded_jwt
+
+def decode_refresh_token(token: str) -> Optional[dict]:
+    try:
+        if isinstance(token, bytes):
+            token = token.decode('utf-8')
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "refresh":
+            return None
+        return payload
+    except Exception as e:
+        print(f"[REFRESH TOKEN DECODE ERROR] {e}")
         return None
 
 async def get_current_user(

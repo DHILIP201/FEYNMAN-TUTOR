@@ -11,7 +11,7 @@ let attachedImage = null;
 let showSvgGraph = false;
 let loadingIntervalId = null;
 let isUploadingPdf = false;
-
+let _accessToken = null;  // In-memory access token (better XSS resilience than localStorage)
 // Close menus / palettes on escape/clicks
 document.addEventListener('click', (e) => {
     document.querySelectorAll('.menu-dropdown').forEach(el => {
@@ -64,7 +64,7 @@ function resolveURL(endpoint) {
 
 
 function getAuthToken() {
-    return localStorage.getItem('feynman_token') || sessionStorage.getItem('feynman_token') || null;
+    return _accessToken || localStorage.getItem('feynman_token') || sessionStorage.getItem('feynman_token') || null;
 }
 
 function getAuthUser() {
@@ -85,11 +85,30 @@ async function fetchAPI(endpoint, options = {}) {
     
     try {
         const response = await fetch(resolveURL(endpoint), options);
-        if (response.status === 401 && !endpoint.includes('/login') && !endpoint.includes('/signup') && !endpoint.includes('/guest')) {
-            console.warn(`[API 401] Unauthorized access on ${endpoint}. Cleared stale auth token.`);
-            if (typeof signOut === 'function') {
-                signOut();
+        if (response.status === 401 && !endpoint.includes('/login') && !endpoint.includes('/signup') && !endpoint.includes('/guest') && !endpoint.includes('/auth/refresh')) {
+            // Try to refresh the access token
+            try {
+                const refreshResp = await fetch(resolveURL('/auth/refresh/'), {
+                    method: 'POST',
+                    credentials: 'include'  // Send HttpOnly cookie
+                });
+                if (refreshResp.ok) {
+                    const refreshData = await refreshResp.json();
+                    _accessToken = refreshData.access_token;
+                    if (localStorage.getItem('feynman_token')) {
+                        localStorage.setItem('feynman_token', _accessToken);
+                    } else {
+                        sessionStorage.setItem('feynman_token', _accessToken);
+                    }
+                    // Retry original request with new token
+                    options.headers['Authorization'] = `Bearer ${_accessToken}`;
+                    return await fetch(resolveURL(endpoint), options);
+                }
+            } catch (refreshErr) {
+                console.warn('[Auth] Refresh failed:', refreshErr);
             }
+            console.warn(`[API 401] Auth failed on ${endpoint}. Signing out.`);
+            if (typeof signOut === 'function') signOut();
         }
         return response;
     } catch (err) {
@@ -619,6 +638,36 @@ async function init() {
             showAuthOverlay();
             return;
         }
+        
+        // Validate token is still valid before unlocking UI
+        try {
+            const validateResp = await fetch(resolveURL('/learner/profile/'), {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (validateResp.status === 401) {
+                // Try refresh before giving up
+                const refreshResp = await fetch(resolveURL('/auth/refresh/'), {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                if (refreshResp.ok) {
+                    const refreshData = await refreshResp.json();
+                    _accessToken = refreshData.access_token;
+                    const storage = localStorage.getItem('feynman_token') ? localStorage : sessionStorage;
+                    storage.setItem('feynman_token', _accessToken);
+                } else {
+                    // Refresh also failed — show login
+                    signOut();
+                    return;
+                }
+            } else {
+                _accessToken = token;  // Token is valid, keep it in memory
+            }
+        } catch (e) {
+            // Network error — proceed with cached token optimistically
+            _accessToken = token;
+        }
+
         hideAuthOverlay();
         updateUserProfile();
         
@@ -830,6 +879,7 @@ async function handleAuthSubmit(e) {
 
             if (authMode === 'signup') {
                 if (data.access_token) {
+                    _accessToken = data.access_token;
                     storage.setItem('feynman_token', data.access_token);
                     storage.setItem('feynman_user', JSON.stringify(data.user));
                     currentUser = data.user;
@@ -847,6 +897,7 @@ async function handleAuthSubmit(e) {
                     setAuthMode('login');
                 }
             } else {
+                _accessToken = data.access_token;
                 storage.setItem('feynman_token', data.access_token);
                 storage.setItem('feynman_user', JSON.stringify(data.user));
                 currentUser = data.user;
@@ -888,6 +939,7 @@ async function continueAsGuest() {
         const response = await fetch(resolveURL('/auth/guest/'), { method: 'POST' });
         const data = await response.json();
         if (response.ok) {
+            _accessToken = data.access_token;
             localStorage.setItem('feynman_token', data.access_token);
             localStorage.setItem('feynman_user', JSON.stringify(data.user));
             currentUser = data.user;
@@ -916,7 +968,18 @@ async function continueAsGuest() {
     }
 }
 
-function signOut() {
+async function signOut() {
+    try {
+        const token = getAuthToken();
+        if (token) {
+            await fetch(resolveURL('/auth/logout/'), {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Authorization': `Bearer ${token}` }
+            }).catch(() => {}); // Best-effort revocation
+        }
+    } catch (e) {}
+    _accessToken = null;
     localStorage.removeItem('feynman_token');
     localStorage.removeItem('feynman_user');
     localStorage.removeItem('feynman_active_session');
@@ -1919,13 +1982,14 @@ function updateWhiteboardContent(content) {
     
     if (emptyState) emptyState.classList.add('hidden');
     
-    if (content && (content.includes('graph ') || content.includes('flowchart '))) {
+    if (content && isMermaidSource(content)) {
+        const wbMermaidId = `wb-mermaid-${Date.now()}`;
         canvas.innerHTML = `
             <div class="bg-[#0C0F17] border border-[#1B2233] p-4 rounded-xl whiteboard-animate-item shadow-lg" style="animation-delay: 0.1s;">
                 <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1">
                     <i class="fa-solid fa-compass-drafting"></i> Visual Sandbox Diagram
                 </div>
-                <div class="mermaid p-3 bg-[#0B0D12] rounded-md text-xs font-mono text-indigo-300 border border-[#222833]">
+                <div id="${wbMermaidId}" class="mermaid p-3 bg-[#0B0D12] rounded-md text-xs font-mono text-indigo-300 border border-[#222833]">
                     ${content}
                 </div>
             </div>
@@ -2660,53 +2724,69 @@ function rateCardResponse(btn, rating, cardId) {
 
 
 // --- MERMAID DIAGRAMS & STREAMING TYPEWRITER HELPERS ---
-function initMermaidDiagrams() {
+const MERMAID_RETRY_MAX = 5;
+const MERMAID_RETRY_DELAY_MS = 300;
+const MERMAID_DIAGRAM_REGEX = /^\s*(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gitGraph|mindmap|timeline|gantt|pie)/i;
+
+function isMermaidSource(str) {
+    return str && MERMAID_DIAGRAM_REGEX.test(str.trim());
+}
+
+async function _runMermaidOnPendingNodes() {
+    const pending = document.querySelectorAll('.mermaid:not([data-processed="true"])');
+    if (pending.length === 0) return;
+    window.mermaid.initialize({
+        startOnLoad: false,
+        theme: 'base',
+        themeVariables: {
+            darkMode: true,
+            background: '#0B1220',
+            primaryColor: '#1E40AF',
+            primaryTextColor: '#FFFFFF',
+            primaryBorderColor: '#60A5FA',
+            lineColor: '#CBD5E1',
+            secondaryColor: '#1E293B',
+            tertiaryColor: '#0F172A',
+            textColor: '#F8FAFC',
+            fontSize: '14px'
+        },
+        securityLevel: 'loose'
+    });
+    pending.forEach(async (el) => {
+        el.setAttribute('data-processed', 'true');
+        const graphDefinition = (el.textContent || '').trim();
+        if (!graphDefinition) return;
+        try {
+            const valid = await window.mermaid.parse(graphDefinition).catch(() => false);
+            if (valid) {
+                await window.mermaid.run({ nodes: [el] }).catch(() => renderFallbackDiagram(el));
+            } else {
+                renderFallbackDiagram(el);
+            }
+        } catch (err) {
+            renderFallbackDiagram(el);
+        }
+    });
+}
+
+function initMermaidDiagrams(retryCount = 0) {
     if (window.mermaid) {
         try {
-            window.mermaid.initialize({
-                startOnLoad: false,
-                theme: 'base',
-                themeVariables: {
-                    darkMode: true,
-                    background: '#0B1220',
-                    primaryColor: '#1E40AF',
-                    primaryTextColor: '#FFFFFF',
-                    primaryBorderColor: '#60A5FA',
-                    lineColor: '#CBD5E1',
-                    secondaryColor: '#1E293B',
-                    tertiaryColor: '#0F172A',
-                    textColor: '#F8FAFC',
-                    fontSize: '14px'
-                },
-                securityLevel: 'loose'
-            });
-            
-            // CRITICAL BUG FIX: Only query unrendered .mermaid elements, never re-parse or hide already rendered ones!
-            document.querySelectorAll('.mermaid:not([data-processed="true"])').forEach(async (el) => {
-                el.setAttribute('data-processed', 'true');
-                const graphDefinition = (el.textContent || '').trim();
-                if (!graphDefinition) return;
-                try {
-                    const valid = await window.mermaid.parse(graphDefinition).catch(() => false);
-                    if (valid) {
-                        await window.mermaid.run({ nodes: [el] }).catch(() => renderFallbackDiagram(el));
-                    } else {
-                        renderFallbackDiagram(el);
-                    }
-                } catch (err) {
-                    renderFallbackDiagram(el);
-                }
-            });
+            _runMermaidOnPendingNodes();
         } catch (e) {
-            console.error("Mermaid init error:", e);
+            console.error('Mermaid init error:', e);
         }
+    } else if (retryCount < MERMAID_RETRY_MAX) {
+        setTimeout(() => initMermaidDiagrams(retryCount + 1), MERMAID_RETRY_DELAY_MS);
+    } else {
+        console.warn('[Mermaid] Library not loaded after retries — diagrams will show as text fallback.');
     }
 }
 
 function renderFallbackDiagram(containerEl) {
     if (!containerEl) return;
-    const parentWrapper = containerEl.closest('.border') || containerEl;
-    if (parentWrapper) parentWrapper.style.display = 'none';
+    containerEl.setAttribute('data-processed', 'true');
+    containerEl.innerHTML = `<div class="text-xs text-gray-500 italic p-2 flex items-center gap-1.5"><i class="fa-solid fa-diagram-project opacity-40"></i> Diagram unavailable for this concept</div>`;
 }
 
 function typewriterStream(elementId, htmlContent) {
@@ -2796,7 +2876,7 @@ function normalizeResponse(data) {
             if (explanationContent) {
                 blocks.push({ type: 'explanation', content: explanationContent });
             }
-            if (vizContent && !vizContent.includes("Fallback") && (vizContent.includes("graph ") || vizContent.includes("flowchart "))) {
+            if (vizContent && !vizContent.includes("Fallback") && isMermaidSource(vizContent)) {
                 blocks.push({ type: 'visualization', content: vizContent });
             }
             if (data.next_learning_step) {
@@ -2808,7 +2888,7 @@ function normalizeResponse(data) {
             if (explanationContent) {
                 blocks.push({ type: 'explanation', content: explanationContent });
             }
-            if (vizContent && !vizContent.includes("Fallback") && (vizContent.includes("graph ") || vizContent.includes("flowchart "))) {
+            if (vizContent && !vizContent.includes("Fallback") && isMermaidSource(vizContent)) {
                 blocks.push({ type: 'visualization', content: vizContent });
             }
             if (data.next_learning_step) {
@@ -2820,7 +2900,7 @@ function normalizeResponse(data) {
             if (explanationContent) {
                 blocks.push({ type: 'explanation', content: explanationContent });
             }
-            if (vizContent && !vizContent.includes("Fallback") && (vizContent.includes("graph ") || vizContent.includes("flowchart "))) {
+            if (vizContent && !vizContent.includes("Fallback") && isMermaidSource(vizContent)) {
                 blocks.push({ type: 'visualization', content: vizContent });
             }
             if (data.reflection_prompt) {
@@ -2847,7 +2927,7 @@ function normalizeResponse(data) {
                 blocks.push({ type: 'explanation', content: explanationContent });
             }
 
-            if (vizContent && !vizContent.includes("Fallback") && (vizContent.includes("graph ") || vizContent.includes("flowchart "))) {
+            if (vizContent && !vizContent.includes("Fallback") && isMermaidSource(vizContent)) {
                 blocks.push({ type: 'visualization', content: vizContent });
             }
 
@@ -2957,7 +3037,7 @@ function renderBlockList(cardId, data) {
 }
 
 function renderVisualizationBlock(cardUniqueId, visualContent) {
-    if (!visualContent || visualContent.trim() === "" || visualContent.includes("Fallback") || (!visualContent.includes("graph ") && !visualContent.includes("flowchart "))) {
+    if (!visualContent || visualContent.trim() === "" || visualContent.includes("Fallback") || !isMermaidSource(visualContent)) {
         return "";
     }
     const vizId = `viz-body-${cardUniqueId}`;
