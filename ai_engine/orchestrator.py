@@ -49,9 +49,13 @@ class FeynmanCognitiveEngine:
         from .response_validator import extract_canonical_topic, synthesize_standard_lesson
         canonical_topic = extract_canonical_topic(user_message, fallback_topic=session_topic)
 
+        import re
         msg_lower = user_message.lower()
+        is_step_by_step = bool(re.search(r'\b(teach me\s+.*?\s*step by step|teach me step by step|step[- ]by[- ]step)\b', msg_lower))
+        is_simplify = bool(re.search(r'\b(explain\s+.*?\s*simply|explain this simply|explain simply|simplify|even simpler|in simple terms|eli5)\b', msg_lower))
+        is_analogy = bool(re.search(r'\b(give\s+.*?\s*analogy|real[- ]world analogy|analogy for|explain with an analogy)\b', msg_lower))
 
-        if "step by step" in msg_lower or "teach me" in msg_lower:
+        if is_step_by_step:
             simple_exp = (
                 f"### Step 1 — Input Ingestion & Feature Representation\n"
                 f"At the very beginning, {canonical_topic} ingests raw input signals or datasets and structures them into a well-defined numerical vector or state space. Every element represents a distinct measurable feature of the input domain.\n\n"
@@ -92,7 +96,7 @@ class FeynmanCognitiveEngine:
                 "mastery_score": min(100, current_mastery + 10),
                 "sources": sources
             }
-        elif "simplify" in msg_lower or "simpler" in msg_lower or "simple" in msg_lower:
+        elif is_simplify:
             simple_exp = (
                 f"Imagine {canonical_topic} like a smart team of inspectors working together to solve a puzzle. "
                 f"The first inspector looks at simple raw clues like colors and shapes. They pass their observations to the next inspector, "
@@ -118,7 +122,7 @@ class FeynmanCognitiveEngine:
                 "mastery_score": min(100, current_mastery + 10),
                 "sources": sources
             }
-        elif "analogy" in msg_lower:
+        elif is_analogy:
             simple_exp = (
                 f"Think of {canonical_topic} like a multi-station gourmet restaurant kitchen preparing complex dishes.\\n\\n"
                 f"At Station 1 (the prep cooks), raw ingredients arrive—chopped, measured, and organized like raw input data. "

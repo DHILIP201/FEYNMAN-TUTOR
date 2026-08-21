@@ -217,10 +217,13 @@ KNOWN_ACRONYMS = {
 }
 
 def clean_prompt_echo(text: str, is_explanation: bool = False) -> str:
-    """Removes user prompt echoes from explanation opening strings without mangling standalone questions."""
+    """Removes user prompt echoes and any accidental diagram code from explanation opening strings."""
     if not text:
         return ""
     stripped = text.strip()
+    # Strip any accidental Mermaid block leakage from text
+    stripped = re.sub(r'```mermaid[\s\S]*?```', '', stripped, flags=re.IGNORECASE).strip()
+    stripped = re.sub(r'^\s*graph\s+(LR|TD|TB|RL|BT)[\s\S]*?;', '', stripped, flags=re.IGNORECASE).strip()
     
     if is_explanation:
         cleaned = re.sub(
@@ -244,6 +247,10 @@ def extract_canonical_topic(text: str, fallback_topic: Optional[str] = None) -> 
     Inherits fallback_topic when the prompt is a follow-up action without an explicit new subject.
     """
     if not text:
+        return fallback_topic or "Core Concept"
+    
+    # Defensive guard: if input text is Mermaid code or contains graph tokens, do not treat as topic
+    if "graph " in text.lower() or "flowchart " in text.lower() or "-->" in text or "```mermaid" in text.lower():
         return fallback_topic or "Core Concept"
     
     cleaned = re.sub(
@@ -408,23 +415,13 @@ class ResponseValidator:
         cognitive_trace = repaired.get("cognitive_trace", "")
         cognitive_trace_lower = cognitive_trace.lower()
 
-        # Determine explicit pedagogical mode — STRICTLY from lesson_mode field
-        # INVARIANT B: STEP_BY_STEP is OPT-IN ONLY. Never infer it from text patterns.
+        # Determine explicit pedagogical mode — STRICTLY from explicit lesson_mode field
+        # INVARIANT: Default is always STANDARD. Never infer ANALOGY, SIMPLIFY, or STEP_BY_STEP from cognitive_trace or text patterns.
         explicit_mode = str(repaired.get("lesson_mode", "")).upper().strip()
-        if explicit_mode == "STEP_BY_STEP":
-            mode = LessonMode.STEP_BY_STEP
-        elif explicit_mode == "SIMPLIFY":
-            mode = LessonMode.SIMPLIFY
-        elif explicit_mode == "ANALOGY":
-            mode = LessonMode.ANALOGY
+        if explicit_mode in ("STEP_BY_STEP", "SIMPLIFY", "ANALOGY", "STANDARD"):
+            mode = LessonMode(explicit_mode)
         else:
-            # Fallback: read from cognitive_trace only for SIMPLIFY/ANALOGY (never STEP_BY_STEP)
-            if "simplify" in cognitive_trace_lower or "simplify" in str(repaired.get("lesson_mode", "")).lower():
-                mode = LessonMode.SIMPLIFY
-            elif "analogy" in cognitive_trace_lower or "analogy" in str(repaired.get("lesson_mode", "")).lower():
-                mode = LessonMode.ANALOGY
-            else:
-                mode = LessonMode.STANDARD
+            mode = LessonMode.STANDARD
         repaired["lesson_mode"] = mode
 
         # Extract clean canonical topic from context with fallback inheritance

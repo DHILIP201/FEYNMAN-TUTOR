@@ -1384,8 +1384,8 @@ async def tutor_chat(
     
     mistakes_text = "\n".join([f"- {m}" for m in previous_mistakes[-3:]]) if previous_mistakes else "No previous misconceptions recorded in this session."
     
-    # Query ChromaDB for top relevant context chunks
-    context_chunks = query_rag(request.session_id, user_message, n_results=4)
+    # Query ChromaDB for top relevant context chunks only when document is present
+    context_chunks = query_rag(request.session_id, user_message, n_results=4) if session.has_doc else []
     
     # Flatten dicts into ground truth text with page citations
     context_text = ""
