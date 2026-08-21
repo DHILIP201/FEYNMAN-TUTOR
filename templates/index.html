@@ -583,6 +583,107 @@
 
         </div>
 
+    <!-- Interactive PDF Quiz Modal Overlay -->
+    <div id="quiz-modal" class="absolute inset-0 bg-[#07090E]/90 backdrop-blur-xl z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-[#0E1320] border border-[#1F293D] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <!-- Quiz Header -->
+            <div class="p-5 border-b border-[#1F293D] flex items-center justify-between bg-[#0B0F19]">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm border border-indigo-500/30">
+                        <i class="fa-solid fa-bolt"></i>
+                    </div>
+                    <div>
+                        <h3 id="quiz-modal-title" class="text-white font-bold text-base font-display">PDF Mastery Assessment</h3>
+                        <p id="quiz-modal-subtitle" class="text-gray-400 text-xs">Grounded in your uploaded study material</p>
+                    </div>
+                </div>
+                <button onclick="closeQuizModal()" class="text-gray-500 hover:text-white p-2 rounded-lg transition-colors" title="Close Quiz">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Quiz Progress Bar -->
+            <div id="quiz-progress-section" class="px-6 py-3 bg-[#0B0E17] flex items-center justify-between text-xs text-gray-400 font-semibold border-b border-[#1B2233]">
+                <span id="quiz-progress-text">Question 1 of 8</span>
+                <div class="w-48 h-2 bg-[#1B2233] rounded-full overflow-hidden">
+                    <div id="quiz-progress-bar" class="h-full bg-indigo-500 rounded-full transition-all duration-300" style="width: 12%"></div>
+                </div>
+                <span id="quiz-score-badge" class="text-indigo-400 font-bold">Score: 0%</span>
+            </div>
+
+            <!-- Quiz Dynamic Content (Loading / Question / Results) -->
+            <div id="quiz-body" class="p-6 overflow-y-auto space-y-6 flex-1 scrollbar-thin">
+                <!-- Dynamically populated via JS -->
+            </div>
+
+            <!-- Quiz Footer Actions -->
+            <div id="quiz-footer" class="p-4 border-t border-[#1F293D] bg-[#0B0F19] flex items-center justify-between">
+                <button id="quiz-hint-btn" onclick="requestQuizHint()" class="text-xs bg-[#161B29] hover:bg-[#1E253A] text-amber-400 border border-amber-500/20 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all">
+                    <i class="fa-regular fa-lightbulb"></i> <span id="quiz-hint-btn-text">I'm stuck, request hint</span>
+                </button>
+                <div class="flex items-center gap-3">
+                    <button id="quiz-submit-btn" onclick="submitQuizAnswer()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                        Submit Answer <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                    <button id="quiz-next-btn" onclick="nextQuizQuestion()" class="hidden text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all">
+                        Next Question <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dedicated Per-Chat "Quiz Me" Modal -->
+    <div id="tutor-quiz-modal" class="absolute inset-0 bg-[#07090E]/90 backdrop-blur-xl z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-[#0E1320] border border-[#1F293D] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <!-- Tutor Quiz Header -->
+            <div class="p-5 border-b border-[#1F293D] flex items-center justify-between bg-[#0B0F19]">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500/20 to-purple-600/20 text-indigo-400 flex items-center justify-center font-bold text-sm border border-indigo-500/30">
+                        <i class="fa-solid fa-brain"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 id="tutor-quiz-title" class="text-white font-bold text-base font-display">Tutor Comprehension Check</h3>
+                            <span id="tutor-quiz-mode-badge" class="text-[10px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full border border-indigo-500/20 font-mono">Quiz Me</span>
+                        </div>
+                        <p id="tutor-quiz-subtitle" class="text-gray-400 text-xs">Targeted 3-4 question review of this lesson</p>
+                    </div>
+                </div>
+                <button onclick="closeTutorQuizModal()" class="text-gray-500 hover:text-white p-2 rounded-lg transition-colors" title="Close Tutor Quiz">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Tutor Quiz Progress Bar -->
+            <div id="tutor-quiz-progress-section" class="px-6 py-3 bg-[#0B0E17] flex items-center justify-between text-xs text-gray-400 font-semibold border-b border-[#1B2233]">
+                <span id="tutor-quiz-progress-text">Question 1 of 4</span>
+                <div class="w-48 h-2 bg-[#1B2233] rounded-full overflow-hidden">
+                    <div id="tutor-quiz-progress-bar" class="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full transition-all duration-300" style="width: 25%"></div>
+                </div>
+                <span id="tutor-quiz-score-badge" class="text-indigo-400 font-bold">Accuracy: 0%</span>
+            </div>
+
+            <!-- Tutor Quiz Dynamic Content (Loading / Question / Results) -->
+            <div id="tutor-quiz-body" class="p-6 overflow-y-auto space-y-6 flex-1 scrollbar-thin">
+                <!-- Dynamically populated via JS -->
+            </div>
+
+            <!-- Tutor Quiz Footer Actions -->
+            <div id="tutor-quiz-footer" class="p-4 border-t border-[#1F293D] bg-[#0B0F19] flex items-center justify-between">
+                <button id="tutor-quiz-hint-btn" onclick="requestTutorQuizHint()" class="text-xs bg-[#161B29] hover:bg-[#1E253A] text-amber-400 border border-amber-500/20 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all">
+                    <i class="fa-regular fa-lightbulb"></i> <span id="tutor-quiz-hint-btn-text">I'm stuck, request hint</span>
+                </button>
+                <div class="flex items-center gap-3">
+                    <button id="tutor-quiz-submit-btn" onclick="submitTutorQuizAnswer()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                        Submit Answer <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                    <button id="tutor-quiz-next-btn" onclick="nextTutorQuizQuestion()" class="hidden text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all">
+                        Next Question <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- UI Notification toast wrapper -->

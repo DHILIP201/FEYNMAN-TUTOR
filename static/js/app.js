@@ -2507,10 +2507,16 @@ function renderMessageUI(role, text, animate, imageObj = null) {
                             <button onclick="triggerCardQuickPrompt('${cardUniqueId}', 'analogy'); event.stopPropagation();" class="hover:text-white transition-colors bg-[#161B26] hover:bg-[#1E2536] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300">
                                 🍕 Analogy
                             </button>
+                            <button onclick="openTutorQuiz('${cardUniqueId}'); event.stopPropagation();" class="hover:text-white transition-colors bg-gradient-to-r from-indigo-600/20 to-purple-600/20 hover:from-indigo-600/30 hover:to-purple-600/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-300 flex items-center gap-1.5 shadow-sm">
+                                🧠 Quiz Me
+                            </button>
                         </div>
+                        ${mode !== 'STEP_BY_STEP' ? `
                         <button onclick="triggerCardQuickPrompt('${cardUniqueId}', 'step_by_step'); event.stopPropagation();" class="text-indigo-400 hover:text-indigo-300 font-semibold text-xs flex items-center gap-1 transition-colors">
                             Teach step by step →
-                        </button>
+                        </button>` : `
+                        <span class="text-[11px] text-gray-500 font-mono">5-Step Active</span>
+                        `}
                     </div>
                 </div>
             `;
@@ -4311,6 +4317,565 @@ function closeQuizModal() {
     activeQuizState = null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PER-CHAT "QUIZ ME" CONTROLLER (Attached to individual tutor response cards)
+// ─────────────────────────────────────────────────────────────────────────────
+
+let activeTutorQuizState = null;
+
+async function openTutorQuiz(cardUniqueId) {
+    const cardData = cardDataStore[cardUniqueId] || {};
+    const topic = cardData.canonical_topic || "Core Concept";
+    const mode = cardData.lesson_mode || "STANDARD";
+    const lessonText = cardData.simple_explanation || "";
+
+    const modal = document.getElementById('tutor-quiz-modal');
+    const body = document.getElementById('tutor-quiz-body');
+    const progressSec = document.getElementById('tutor-quiz-progress-section');
+    const footer = document.getElementById('tutor-quiz-footer');
+    const modeBadge = document.getElementById('tutor-quiz-mode-badge');
+    const title = document.getElementById('tutor-quiz-title');
+    const subtitle = document.getElementById('tutor-quiz-subtitle');
+
+    if (modal) modal.classList.remove('hidden');
+    if (progressSec) progressSec.classList.add('hidden');
+    if (footer) footer.classList.add('hidden');
+    if (title) title.innerText = `${topic}`;
+    if (subtitle) subtitle.innerText = `Topic-specific review • ${mode} Mode`;
+    if (modeBadge) modeBadge.innerText = `Quiz Me • ${mode}`;
+
+    if (body) {
+        body.innerHTML = `
+            <div class="py-16 flex flex-col items-center justify-center text-center space-y-4">
+                <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-500/20 to-purple-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-2xl animate-pulse">
+                    <i class="fa-solid fa-brain"></i>
+                </div>
+                <div>
+                    <h4 class="text-white font-bold text-lg font-display">Generating Comprehension Check</h4>
+                    <p class="text-gray-400 text-xs mt-1 max-w-sm">Synthesizing 3-4 targeted questions on <span class="text-indigo-300 font-semibold">${topic}</span>...</p>
+                </div>
+                <div class="flex items-center gap-2 text-indigo-400 text-xs font-semibold mt-2">
+                    <i class="fa-solid fa-spinner animate-spin"></i> Grounding in current lesson...
+                </div>
+            </div>
+        `;
+    }
+
+    try {
+        const response = await fetchAPI('/tutor-quiz/start/', {
+            method: 'POST',
+            body: JSON.stringify({
+                message_id: cardUniqueId,
+                session_id: currentSessionId,
+                canonical_topic: topic,
+                lesson_text: lessonText,
+                lesson_mode: mode,
+                question_count: 4
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.detail || "Failed to generate tutor quiz.");
+        }
+
+        activeTutorQuizState = {
+            quizId: data.quiz_id,
+            messageId: cardUniqueId,
+            topic: data.canonical_topic || topic,
+            mode: data.lesson_mode || mode,
+            questions: data.questions || [],
+            currentIndex: 0,
+            selectedAnswer: "",
+            isAnswered: false,
+            scorePercent: 0
+        };
+
+        if (activeTutorQuizState.questions.length === 0) {
+            throw new Error("No questions could be generated for this lesson.");
+        }
+
+        renderTutorQuizQuestion();
+
+    } catch (err) {
+        console.error("[Tutor Quiz Start Error]", err);
+        if (body) {
+            body.innerHTML = `
+                <div class="py-12 flex flex-col items-center justify-center text-center space-y-4">
+                    <div class="w-12 h-12 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 text-xl">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-white font-bold text-base">Quiz Generation Error</h4>
+                        <p class="text-gray-400 text-xs mt-1 max-w-sm">${err.message || "Failed to generate quiz questions for this lesson."}</p>
+                    </div>
+                    <div class="flex items-center gap-3 pt-2">
+                        <button onclick="openTutorQuiz('${cardUniqueId}')" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl font-bold transition-all">
+                            <i class="fa-solid fa-rotate-right mr-1"></i> Retry
+                        </button>
+                        <button onclick="closeTutorQuizModal()" class="text-xs bg-[#1A2030] hover:bg-[#232B40] text-gray-300 px-4 py-2.5 rounded-xl font-semibold transition-all">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+    }
+}
+
+function closeTutorQuizModal() {
+    const modal = document.getElementById('tutor-quiz-modal');
+    if (modal) modal.classList.add('hidden');
+    activeTutorQuizState = null;
+}
+
+function renderTutorQuizQuestion() {
+    if (!activeTutorQuizState || !activeTutorQuizState.questions || activeTutorQuizState.currentIndex >= activeTutorQuizState.questions.length) {
+        return;
+    }
+
+    const q = activeTutorQuizState.questions[activeTutorQuizState.currentIndex];
+    const total = activeTutorQuizState.questions.length;
+    const currentNum = activeTutorQuizState.currentIndex + 1;
+    const progressPct = Math.round((currentNum / total) * 100);
+
+    const progressSec = document.getElementById('tutor-quiz-progress-section');
+    if (progressSec) progressSec.classList.remove('hidden');
+
+    const progressText = document.getElementById('tutor-quiz-progress-text');
+    if (progressText) progressText.innerText = `Question ${currentNum} of ${total}`;
+
+    const progressBar = document.getElementById('tutor-quiz-progress-bar');
+    if (progressBar) progressBar.style.width = `${progressPct}%`;
+
+    const scoreBadge = document.getElementById('tutor-quiz-score-badge');
+    if (scoreBadge) scoreBadge.innerText = `Accuracy: ${activeTutorQuizState.scorePercent}%`;
+
+    const body = document.getElementById('tutor-quiz-body');
+    if (!body) return;
+
+    let inputHtml = '';
+    const qType = (q.question_type || 'MCQ').toUpperCase();
+
+    if (qType === 'TF') {
+        inputHtml = `
+            <div class="grid grid-cols-2 gap-3 mt-4">
+                <button type="button" onclick="selectTutorQuizOption('True')" id="tutor-opt-True" class="tutor-quiz-option-btn p-4 rounded-xl border border-[#1F293D] bg-[#0D111A] hover:border-indigo-500/50 hover:bg-[#121724] text-left text-sm font-semibold text-gray-200 transition-all flex items-center gap-3">
+                    <span class="w-7 h-7 rounded-full border border-gray-600 flex items-center justify-center text-xs font-bold text-gray-400 opt-radio">
+                        T
+                    </span>
+                    <span>True</span>
+                </button>
+                <button type="button" onclick="selectTutorQuizOption('False')" id="tutor-opt-False" class="tutor-quiz-option-btn p-4 rounded-xl border border-[#1F293D] bg-[#0D111A] hover:border-indigo-500/50 hover:bg-[#121724] text-left text-sm font-semibold text-gray-200 transition-all flex items-center gap-3">
+                    <span class="w-7 h-7 rounded-full border border-gray-600 flex items-center justify-center text-xs font-bold text-gray-400 opt-radio">
+                        F
+                    </span>
+                    <span>False</span>
+                </button>
+            </div>
+        `;
+    } else if (qType === 'SHORT_ANSWER') {
+        inputHtml = `
+            <div class="space-y-3 mt-4">
+                <div class="relative">
+                    <textarea id="tutor-short-answer-input" oninput="updateShortAnswerInput(this.value)" rows="4" placeholder="Explain in your own words (e.g. what are the inputs, how do they transform, and why)..." class="w-full bg-[#0D111A] border border-[#1F293D] focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl p-3.5 text-xs text-gray-200 outline-none resize-none leading-relaxed"></textarea>
+                </div>
+                <div class="flex items-center justify-between text-[11px] text-gray-500">
+                    <span>💡 Tip: Focus on the intuition and mechanism rather than exact syntax.</span>
+                    <span id="tutor-short-char-count">0 chars</span>
+                </div>
+            </div>
+        `;
+    } else {
+        // MCQ
+        inputHtml = `
+            <div class="space-y-3 mt-4">
+                ${(q.options || []).map((optStr, idx) => {
+                    const letter = optStr.trim().charAt(0).toUpperCase();
+                    return `
+                        <button type="button" onclick="selectTutorQuizOption('${letter}')" id="tutor-opt-${letter}" class="tutor-quiz-option-btn w-full p-3.5 rounded-xl border border-[#1F293D] bg-[#0D111A] hover:border-indigo-500/50 hover:bg-[#121724] text-left text-xs font-semibold text-gray-200 transition-all flex items-center gap-3">
+                            <span class="w-6 h-6 rounded-lg bg-[#161C2C] border border-[#263147] flex items-center justify-center text-xs font-bold text-indigo-400 opt-radio flex-shrink-0">
+                                ${letter}
+                            </span>
+                            <span class="flex-1 leading-relaxed">${optStr}</span>
+                        </button>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    body.innerHTML = `
+        <div class="space-y-4">
+            <!-- Metadata Tags -->
+            <div class="flex items-center justify-between text-[11px] font-bold">
+                <span class="text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20">
+                    <i class="fa-solid fa-bookmark mr-1"></i> ${q.canonical_topic || activeTutorQuizState.topic}
+                </span>
+                <div class="flex items-center gap-2 text-gray-400">
+                    <span class="uppercase tracking-wider text-[10px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                        ${qType === 'SHORT_ANSWER' ? 'Feynman Teach-Back' : qType}
+                    </span>
+                    <span class="uppercase tracking-wider text-[10px] text-gray-400 bg-[#141824] px-2 py-0.5 rounded border border-[#222A3D]">
+                        ${q.difficulty || 'Medium'}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Question Prompt -->
+            <div class="text-white font-medium text-sm sm:text-base leading-relaxed font-display pt-1">
+                ${q.question_text}
+            </div>
+
+            <!-- Input / Options -->
+            ${inputHtml}
+
+            <!-- Progressive Hint Container -->
+            <div id="tutor-quiz-hint-container" class="hidden pt-2"></div>
+
+            <!-- Immediate Feedback Container -->
+            <div id="tutor-quiz-feedback-container" class="hidden pt-2"></div>
+        </div>
+    `;
+
+    // Reset Footer Actions
+    const footer = document.getElementById('tutor-quiz-footer');
+    if (footer) footer.classList.remove('hidden');
+
+    const hintBtn = document.getElementById('tutor-quiz-hint-btn');
+    const hintBtnText = document.getElementById('tutor-quiz-hint-btn-text');
+    if (hintBtn) {
+        hintBtn.classList.remove('hidden');
+        hintBtn.disabled = false;
+        hintBtn.classList.remove('opacity-40');
+    }
+    if (hintBtnText) hintBtnText.innerText = "I'm stuck, request hint";
+
+    const submitBtn = document.getElementById('tutor-quiz-submit-btn');
+    if (submitBtn) {
+        submitBtn.classList.remove('hidden');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `Submit Answer <i class="fa-solid fa-arrow-right"></i>`;
+    }
+
+    const nextBtn = document.getElementById('tutor-quiz-next-btn');
+    if (nextBtn) nextBtn.classList.add('hidden');
+
+    activeTutorQuizState.selectedAnswer = "";
+    activeTutorQuizState.isAnswered = false;
+}
+
+function selectTutorQuizOption(optionKey) {
+    if (!activeTutorQuizState || activeTutorQuizState.isAnswered) return;
+    activeTutorQuizState.selectedAnswer = optionKey;
+
+    document.querySelectorAll('.tutor-quiz-option-btn').forEach(btn => {
+        btn.classList.remove('border-indigo-500', 'bg-indigo-600/10', 'text-white');
+        btn.classList.add('border-[#1F293D]', 'bg-[#0D111A]', 'text-gray-200');
+        const radio = btn.querySelector('.opt-radio');
+        if (radio) {
+            radio.classList.remove('bg-indigo-500', 'text-white');
+            radio.classList.add('text-indigo-400', 'bg-[#161C2C]');
+        }
+    });
+
+    const selectedBtn = document.getElementById(`tutor-opt-${optionKey}`);
+    if (selectedBtn) {
+        selectedBtn.classList.remove('border-[#1F293D]', 'bg-[#0D111A]', 'text-gray-200');
+        selectedBtn.classList.add('border-indigo-500', 'bg-indigo-600/10', 'text-white');
+        const radio = selectedBtn.querySelector('.opt-radio');
+        if (radio) {
+            radio.classList.remove('text-indigo-400', 'bg-[#161C2C]');
+            radio.classList.add('bg-indigo-500', 'text-white');
+        }
+    }
+
+    const submitBtn = document.getElementById('tutor-quiz-submit-btn');
+    if (submitBtn) submitBtn.disabled = false;
+}
+
+function updateShortAnswerInput(val) {
+    if (!activeTutorQuizState || activeTutorQuizState.isAnswered) return;
+    activeTutorQuizState.selectedAnswer = val;
+
+    const charCount = document.getElementById('tutor-short-char-count');
+    if (charCount) charCount.innerText = `${val.trim().length} chars`;
+
+    const submitBtn = document.getElementById('tutor-quiz-submit-btn');
+    if (submitBtn) submitBtn.disabled = (val.trim().length === 0);
+}
+
+async function requestTutorQuizHint() {
+    if (!activeTutorQuizState || activeTutorQuizState.isAnswered) return;
+    const q = activeTutorQuizState.questions[activeTutorQuizState.currentIndex];
+    const hintBtn = document.getElementById('tutor-quiz-hint-btn');
+    const hintBtnText = document.getElementById('tutor-quiz-hint-btn-text');
+    const hintContainer = document.getElementById('tutor-quiz-hint-container');
+
+    if (hintBtn) hintBtn.disabled = true;
+    if (hintBtnText) hintBtnText.innerText = "Retrieving hint...";
+
+    try {
+        const response = await fetchAPI(`/tutor-quiz/${activeTutorQuizState.quizId}/hint/`, {
+            method: 'POST',
+            body: JSON.stringify({ question_id: q.id })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Could not fetch hint.");
+
+        if (hintContainer) {
+            hintContainer.classList.remove('hidden');
+            hintContainer.innerHTML = `
+                <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 text-xs text-amber-200 flex items-start gap-3">
+                    <i class="fa-solid fa-lightbulb text-amber-400 text-sm mt-0.5"></i>
+                    <div class="flex-1 leading-relaxed">
+                        ${data.hint_text}
+                    </div>
+                </div>
+            `;
+        }
+
+        if (hintBtn && hintBtnText) {
+            if (data.is_final) {
+                hintBtnText.innerText = "Final hint displayed";
+                hintBtn.disabled = true;
+            } else {
+                hintBtnText.innerText = `Next Hint (${data.hints_requested + 1}/3)`;
+                hintBtn.disabled = false;
+            }
+        }
+
+    } catch (err) {
+        showToast(err.message || "Hint unavailable", "error");
+        if (hintBtn && hintBtnText) {
+            hintBtnText.innerText = "Request Hint";
+            hintBtn.disabled = false;
+        }
+    }
+}
+
+async function submitTutorQuizAnswer() {
+    if (!activeTutorQuizState || !activeTutorQuizState.selectedAnswer || activeTutorQuizState.isAnswered) return;
+    const q = activeTutorQuizState.questions[activeTutorQuizState.currentIndex];
+    const submitBtn = document.getElementById('tutor-quiz-submit-btn');
+    const hintBtn = document.getElementById('tutor-quiz-hint-btn');
+    const feedbackContainer = document.getElementById('tutor-quiz-feedback-container');
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span>Evaluating...</span><i class="fa-solid fa-spinner animate-spin text-xs"></i>`;
+    }
+
+    try {
+        const response = await fetchAPI(`/tutor-quiz/${activeTutorQuizState.quizId}/answer/`, {
+            method: 'POST',
+            body: JSON.stringify({
+                question_id: q.id,
+                answer: activeTutorQuizState.selectedAnswer
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Failed to record answer.");
+
+        activeTutorQuizState.isAnswered = true;
+        activeTutorQuizState.scorePercent = data.progress.score_percent;
+
+        const scoreBadge = document.getElementById('tutor-quiz-score-badge');
+        if (scoreBadge) scoreBadge.innerText = `Accuracy: ${data.progress.score_percent}%`;
+
+        // Disable hint button after submission
+        if (hintBtn) {
+            hintBtn.disabled = true;
+            hintBtn.classList.add('opacity-40');
+        }
+
+        const qType = (q.question_type || 'MCQ').toUpperCase();
+        if (qType === 'MCQ' || qType === 'TF') {
+            const userChoice = activeTutorQuizState.selectedAnswer.toUpperCase();
+            const correctChoice = (data.correct_answer || "").toUpperCase();
+
+            const userBtn = document.getElementById(`tutor-opt-${userChoice}`);
+            if (userBtn) {
+                if (data.is_correct) {
+                    userBtn.className = "tutor-quiz-option-btn w-full p-3.5 rounded-xl border border-emerald-500 bg-emerald-500/10 text-emerald-300 font-semibold text-xs flex items-center gap-3";
+                } else {
+                    userBtn.className = "tutor-quiz-option-btn w-full p-3.5 rounded-xl border border-red-500 bg-red-500/10 text-red-300 font-semibold text-xs flex items-center gap-3";
+                }
+            }
+
+            if (!data.is_correct) {
+                const correctBtn = document.getElementById(`tutor-opt-${correctChoice}`);
+                if (correctBtn) {
+                    correctBtn.className = "tutor-quiz-option-btn w-full p-3.5 rounded-xl border border-emerald-500/60 bg-emerald-500/10 text-emerald-300 font-semibold text-xs flex items-center gap-3";
+                }
+            }
+        }
+
+        // Render Feedback Box
+        if (feedbackContainer) {
+            feedbackContainer.classList.remove('hidden');
+            const isCorrect = data.is_correct;
+            feedbackContainer.innerHTML = `
+                <div class="rounded-xl border ${isCorrect ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/30 text-red-300'} p-4 space-y-2">
+                    <div class="flex items-center justify-between font-bold text-xs">
+                        <span class="flex items-center gap-2">
+                            <i class="fa-solid ${isCorrect ? 'fa-circle-check text-emerald-400' : 'fa-circle-xmark text-red-400'}"></i>
+                            ${isCorrect ? (data.score === 1.0 ? 'Correct! (+15 Mastery)' : `Partial Credit (${Math.round(data.score * 100)}%)`) : 'Incorrect (-10 Mastery)'}
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-300 leading-relaxed">${data.feedback}</p>
+                    ${data.explanation ? `
+                        <div class="pt-2 border-t border-[#1F293D]/60 text-[11px] text-gray-400">
+                            <span class="font-semibold text-gray-300">Explanation:</span> ${data.explanation}
+                        </div>
+                    ` : ''}
+                    ${(data.missing_concepts && data.missing_concepts.length > 0) ? `
+                        <div class="pt-1 text-[11px] text-amber-300/80">
+                            <span class="font-semibold">Concepts to reinforce:</span> ${data.missing_concepts.join(', ')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // Switch button to Next Question / Finish Quiz
+        const isLastQuestion = (activeTutorQuizState.currentIndex + 1 >= activeTutorQuizState.questions.length);
+        if (submitBtn) submitBtn.classList.add('hidden');
+        const nextBtn = document.getElementById('tutor-quiz-next-btn');
+        if (nextBtn) {
+            nextBtn.classList.remove('hidden');
+            nextBtn.innerHTML = isLastQuestion ? `See Quiz Results <i class="fa-solid fa-flag-checkered"></i>` : `Next Question <i class="fa-solid fa-arrow-right"></i>`;
+        }
+
+    } catch (err) {
+        showToast(err.message || "Failed to submit answer.", "error");
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `Submit Answer <i class="fa-solid fa-arrow-right"></i>`;
+        }
+    }
+}
+
+async function nextTutorQuizQuestion() {
+    if (!activeTutorQuizState) return;
+
+    if (activeTutorQuizState.currentIndex + 1 < activeTutorQuizState.questions.length) {
+        activeTutorQuizState.currentIndex++;
+        renderTutorQuizQuestion();
+    } else {
+        // Complete Quiz
+        await finishTutorQuiz();
+    }
+}
+
+async function finishTutorQuiz() {
+    if (!activeTutorQuizState) return;
+    const body = document.getElementById('tutor-quiz-body');
+    const progressSec = document.getElementById('tutor-quiz-progress-section');
+    const footer = document.getElementById('tutor-quiz-footer');
+
+    if (progressSec) progressSec.classList.add('hidden');
+    if (footer) footer.classList.add('hidden');
+
+    if (body) {
+        body.innerHTML = `
+            <div class="py-16 flex flex-col items-center justify-center text-center space-y-4">
+                <div class="w-12 h-12 rounded-2xl bg-indigo-600/20 flex items-center justify-center text-indigo-400 text-xl animate-spin">
+                    <i class="fa-solid fa-spinner"></i>
+                </div>
+                <p class="text-gray-400 text-xs font-semibold">Finalizing your tutor assessment & updating mastery...</p>
+            </div>
+        `;
+    }
+
+    try {
+        const response = await fetchAPI(`/tutor-quiz/${activeTutorQuizState.quizId}/complete/`, {
+            method: 'POST'
+        });
+        const results = await response.json();
+        if (!response.ok) throw new Error(results.detail || "Failed to compute results.");
+
+        renderTutorQuizResults(results);
+
+    } catch (err) {
+        showToast(err.message || "Failed to complete quiz.", "error");
+        closeTutorQuizModal();
+    }
+}
+
+function renderTutorQuizResults(results) {
+    const body = document.getElementById('tutor-quiz-body');
+    if (!body) return;
+
+    const pct = results.score_percent || 0;
+    const isMastered = pct >= 80;
+    const cardId = activeTutorQuizState ? activeTutorQuizState.messageId : '';
+
+    body.innerHTML = `
+        <div class="space-y-6 py-2">
+            <!-- Score Banner -->
+            <div class="p-6 rounded-2xl border ${isMastered ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-indigo-500/10 border-indigo-500/30'} flex items-center justify-between">
+                <div>
+                    <span class="text-xs font-bold uppercase tracking-wider ${isMastered ? 'text-emerald-400' : 'text-indigo-400'}">Quiz Complete</span>
+                    <h4 class="text-xl font-bold text-white mt-1 font-display">${results.canonical_topic}</h4>
+                    <p class="text-gray-400 text-xs mt-1">Answered ${results.correct_count} of ${results.total_questions} questions correctly</p>
+                </div>
+                <div class="text-right">
+                    <div class="text-3xl font-black text-white font-display">${pct}%</div>
+                    <span class="text-[11px] font-bold ${isMastered ? 'text-emerald-400' : 'text-indigo-300'}">${isMastered ? 'Mastery Achieved' : 'Concept Practiced'}</span>
+                </div>
+            </div>
+
+            <!-- Performance Breakdown -->
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-[#0B0E17] border border-[#1F293D] rounded-xl p-4 space-y-2">
+                    <div class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                        <i class="fa-solid fa-circle-check"></i> Strong Concepts
+                    </div>
+                    <ul class="text-xs text-gray-300 space-y-1">
+                        ${(results.strong_topics && results.strong_topics.length > 0) ? results.strong_topics.map(t => `<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> ${t}</li>`).join('') : '<li class="text-gray-500 italic">None recorded</li>'}
+                    </ul>
+                </div>
+                <div class="bg-[#0B0E17] border border-[#1F293D] rounded-xl p-4 space-y-2">
+                    <div class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                        <i class="fa-solid fa-triangle-exclamation"></i> Needs Review
+                    </div>
+                    <ul class="text-xs text-gray-300 space-y-1">
+                        ${(results.weak_topics && results.weak_topics.length > 0) ? results.weak_topics.map(t => `<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> ${t}</li>`).join('') : '<li class="text-gray-500 italic">No weak spots detected!</li>'}
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Feynman AI Coach Tip -->
+            <div class="bg-indigo-950/20 border border-indigo-500/20 rounded-xl p-4 flex items-start gap-3">
+                <i class="fa-solid fa-graduation-cap text-indigo-400 text-lg mt-0.5"></i>
+                <div class="space-y-1">
+                    <div class="text-xs font-bold text-indigo-300 font-display">Feynman Coach Recommendation</div>
+                    <p class="text-xs text-gray-300 leading-relaxed">${results.coach_tip}</p>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="pt-2 flex items-center justify-between border-t border-[#1F293D]">
+                <div class="flex items-center gap-2">
+                    ${(results.weak_topics && results.weak_topics.length > 0) ? `
+                        <button onclick="closeTutorQuizModal(); triggerCardQuickPrompt('${cardId}', 'simplify');" class="text-xs bg-[#161B29] hover:bg-[#1E253A] text-amber-300 border border-amber-500/30 px-3.5 py-2.5 rounded-xl font-semibold transition-all flex items-center gap-2">
+                            💡 Simplify Weak Area
+                        </button>
+                    ` : ''}
+                    <button onclick="openTutorQuiz('${cardId}')" class="text-xs bg-[#161B29] hover:bg-[#1E253A] text-gray-300 border border-[#222A3D] px-3.5 py-2.5 rounded-xl font-semibold transition-all flex items-center gap-2">
+                        <i class="fa-solid fa-rotate-right text-xs"></i> Try Again
+                    </button>
+                </div>
+                <button onclick="closeTutorQuizModal()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-md">
+                    Back to Lesson
+                </button>
+            </div>
+        </div>
+    `;
+}
+
 // --- EXPLICIT GLOBAL BINDINGS FOR INLINE HTML EVENT HANDLERS ---
 if (typeof window !== 'undefined') {
     window.setAuthMode = setAuthMode;
@@ -4342,13 +4907,22 @@ if (typeof window !== 'undefined') {
     window.handlePdfUpload = handlePdfUpload;
     window.initFileUpload = initFileUpload;
     window.removeAttachedImage = removeAttachedImage;
-    // Interactive Quiz Global Handlers
+    // PDF Interactive Quiz Global Handlers
     window.startInteractiveQuiz = startInteractiveQuiz;
     window.closeQuizModal = closeQuizModal;
     window.requestQuizHint = requestQuizHint;
     window.submitQuizAnswer = submitQuizAnswer;
     window.nextQuizQuestion = nextQuizQuestion;
     window.selectQuizOption = selectQuizOption;
+    // Per-Chat Tutor Quiz Global Handlers
+    window.openTutorQuiz = openTutorQuiz;
+    window.closeTutorQuizModal = closeTutorQuizModal;
+    window.renderTutorQuizQuestion = renderTutorQuizQuestion;
+    window.selectTutorQuizOption = selectTutorQuizOption;
+    window.updateShortAnswerInput = updateShortAnswerInput;
+    window.requestTutorQuizHint = requestTutorQuizHint;
+    window.submitTutorQuizAnswer = submitTutorQuizAnswer;
+    window.nextTutorQuizQuestion = nextTutorQuizQuestion;
 }
 
 // Boot the application
@@ -4363,4 +4937,5 @@ if (typeof document !== 'undefined') {
         init();
     }
 }
+
 

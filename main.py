@@ -45,7 +45,10 @@ from database import (
     TelemetryLog,
     QuizSession,
     QuizQuestion,
-    QuizAnswer
+    QuizAnswer,
+    TutorQuizSession,
+    TutorQuizQuestion,
+    TutorQuizAnswer
 )
 from ai_engine import (
     feynman_engine, 
@@ -60,6 +63,7 @@ from routers.certificates import generate_certificate, verify_certificate, get_l
 from routers.admin import router as admin_router
 from routers.billing import router as billing_router
 from routers.quiz import router as quiz_router
+from routers.tutor_quiz import router as tutor_quiz_router
 
 from security import (
     get_password_hash, 
@@ -1709,6 +1713,7 @@ def readiness_check():
 app.include_router(admin_router)
 app.include_router(billing_router)
 app.include_router(quiz_router)
+app.include_router(tutor_quiz_router)
 
 
 # ── Track C-3: Learning Reports & Certificates ──────────────────────────────
