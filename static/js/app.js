@@ -119,17 +119,131 @@ async function fetchAPI(endpoint, options = {}) {
 }
 
 
-// --- HELPER: SAFE MARKDOWN PARSER ---
+// --- HELPER: LATEX MATH & SAFE MARKDOWN PARSER ---
+function renderLatexFallback(mathText) {
+    if (!mathText) return "";
+    return mathText
+        .replace(/\\hat\{([a-zA-Z0-9]+)\}/g, '$1̂')
+        .replace(/\\mathbf\{([a-zA-Z0-9]+)\}/g, '$1')
+        .replace(/\\text\{([^}]+)\}/g, '$1')
+        .replace(/\\sum_\{([^}]+)\}\^\{([^}]+)\}/g, '∑($1 to $2) ')
+        .replace(/\\sum/g, '∑')
+        .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '($1 / $2)')
+        .replace(/\\partial/g, '∂')
+        .replace(/\\sigma/g, 'σ')
+        .replace(/\\eta/g, 'η')
+        .replace(/\\alpha/g, 'α')
+        .replace(/\\beta/g, 'β')
+        .replace(/\\theta/g, 'θ')
+        .replace(/\\lambda/g, 'λ')
+        .replace(/\\dots/g, '...')
+        .replace(/\\le/g, '≤')
+        .replace(/\\ge/g, '≥')
+        .replace(/\\neq/g, '≠')
+        .replace(/\\leftarrow/g, '←')
+        .replace(/\\rightarrow/g, '→')
+        .replace(/\\times/g, '×')
+        .replace(/\\cdot/g, '·')
+        .replace(/\\lfloor/g, '⌊')
+        .replace(/\\rfloor/g, '⌋')
+        .replace(/\\lceil/g, '⌈')
+        .replace(/\\rceil/g, '⌉')
+        .replace(/\\log_\{?2\}?/g, 'log₂')
+        .replace(/\\log/g, 'log')
+        .replace(/\\left|\\right/g, '')
+        .replace(/\\sqrt\{([^}]+)\}/g, '√($1)')
+        .replace(/\^\{([^}]+)\}/g, '^$1')
+        .replace(/_\{([^}]+)\}/g, '_$1');
+}
+
+function renderMathToString(rawMath, isDisplay) {
+    if (typeof window !== 'undefined' && window.katex && typeof window.katex.renderToString === 'function') {
+        try {
+            return window.katex.renderToString(rawMath.trim(), {
+                displayMode: isDisplay,
+                throwOnError: false
+            });
+        } catch (e) {
+            console.warn('[KaTeX Render Error]', e);
+        }
+    }
+    // High-fidelity formatted fallback if KaTeX CDN is delayed
+    const cleaned = renderLatexFallback(rawMath.trim());
+    return isDisplay
+        ? `<div class="katex-display-fallback text-center font-mono my-2 py-1 px-3 bg-[#0B0E17] border border-indigo-500/20 rounded text-indigo-300 text-sm overflow-x-auto">${cleaned}</div>`
+        : `<span class="katex-inline-fallback font-mono px-1 py-0.5 bg-indigo-950/40 border border-indigo-500/20 rounded text-indigo-300 text-xs">${cleaned}</span>`;
+}
+
 function safeMarkdown(str) {
     if (!str) return "";
     try {
+        // Step 1: Protect and extract LaTeX math blocks so marked.js does not corrupt math syntax
+        const mathTokens = [];
+        let tokenized = str;
+
+        // Display math: $$...$$ or \[...\]
+        tokenized = tokenized.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+            const idx = mathTokens.length;
+            mathTokens.push(renderMathToString(math, true));
+            return `%%FEYNMAN_MATH_BLOCK_${idx}%%`;
+        });
+        tokenized = tokenized.replace(/\\\[([\s\S]+?)\\\]/g, (_, math) => {
+            const idx = mathTokens.length;
+            mathTokens.push(renderMathToString(math, true));
+            return `%%FEYNMAN_MATH_BLOCK_${idx}%%`;
+        });
+
+        // Inline math: $...$ or \(...\)
+        tokenized = tokenized.replace(/\$([^\$\n]+?)\$/g, (_, math) => {
+            const idx = mathTokens.length;
+            mathTokens.push(renderMathToString(math, false));
+            return `%%FEYNMAN_MATH_BLOCK_${idx}%%`;
+        });
+        tokenized = tokenized.replace(/\\\(([\s\S]+?)\\\)/g, (_, math) => {
+            const idx = mathTokens.length;
+            mathTokens.push(renderMathToString(math, false));
+            return `%%FEYNMAN_MATH_BLOCK_${idx}%%`;
+        });
+
+        // Step 2: Parse markdown via marked
+        let html = "";
         if (window.marked && typeof window.marked.parse === 'function') {
-            return window.marked.parse(str);
+            html = window.marked.parse(tokenized);
+        } else {
+            html = tokenized;
         }
+
+        // Step 3: Re-inject rendered KaTeX HTML tokens
+        html = html.replace(/%%FEYNMAN_MATH_BLOCK_(\d+)%%/g, (_, idx) => {
+            const tokenIdx = parseInt(idx, 10);
+            return mathTokens[tokenIdx] !== undefined ? mathTokens[tokenIdx] : "";
+        });
+
+        return html;
     } catch (e) {
         console.error("Markdown parse error:", e);
     }
     return str;
+}
+
+function renderKaTeXMath(rootElement) {
+    const target = rootElement || document.body;
+    if (typeof renderMathInElement === 'function') {
+        try {
+            renderMathInElement(target, {
+                delimiters: [
+                    { left: '$$', right: '$$', display: true },
+                    { left: '\\[', right: '\\]', display: true },
+                    { left: '$', right: '$', display: false },
+                    { left: '\\(', right: '\\)', display: false }
+                ],
+                ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
+                throwOnError: false
+            });
+        } catch (e) {
+            console.warn('[renderMathInElement error]', e);
+        }
+    }
 }
 
 // --- TOAST NOTIFICATIONS ---
@@ -2123,6 +2237,7 @@ function updateWhiteboardContent(content, topic = "Visual Sandbox Diagram") {
             </div>
         `;
         initMermaidDiagrams();
+        renderKaTeXMath(canvas);
     } else if (content) {
         canvas.innerHTML = `
             <div class="bg-[#0C0F17] border border-[#1B2233] p-4 rounded-xl whiteboard-animate-item shadow-lg" style="animation-delay: 0.1s;">
@@ -2134,6 +2249,7 @@ function updateWhiteboardContent(content, topic = "Visual Sandbox Diagram") {
                 </div>
             </div>
         `;
+        renderKaTeXMath(canvas);
     }
     
     if (drawer) drawer.classList.remove('hidden');
@@ -2402,6 +2518,7 @@ function renderMessageUI(role, text, animate, imageObj = null) {
                 if (chatContainer) {
                     chatContainer.appendChild(div);
                     initMermaidDiagrams();
+                    renderKaTeXMath(div);
                     scrollToBottom();
                 } else {
                     console.error("appendChild failed: chatContainer is null");

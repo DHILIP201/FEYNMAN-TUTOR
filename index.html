@@ -14,6 +14,10 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <!-- KaTeX LaTeX Math Rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body class="h-screen w-screen flex bg-[#0A0D14] text-gray-200 overflow-hidden font-sans antialiased relative">
@@ -530,14 +534,6 @@
                     <!-- Input / Controls Composer (Fixed non-overlapping layout) -->
                     <div class="bg-gradient-to-t from-[#080B12] via-[#080B12] to-[#080B12]/95 border-t border-[#1F293D]/40 pt-6 pb-6 px-6 flex-shrink-0">
                         <div class="max-w-3xl mx-auto">
-                            <!-- Hints helper tools -->
-                            <div class="flex gap-2 mb-3 justify-end items-center">
-                                <button onclick="triggerProgressiveHint()" class="text-xs bg-[#111622] hover:bg-[#1A2030] text-amber-400 border border-[#1F293D] px-3.5 py-2 rounded-full transition-all shadow-sm font-semibold flex items-center gap-1.5">
-                                    <i class="fa-regular fa-lightbulb text-amber-400 text-sm"></i> 
-                                    <span id="hint-btn-text">I'm stuck, request hint</span>
-                                </button>
-                                <!-- Inline Diagrams rendered seamlessly in chat response cards -->
-                            </div>
                             
                             <div class="bg-[#111622] border border-[#1F293D] rounded-2xl shadow-xl p-3 flex items-end gap-3 focus-within:border-indigo-500/80 transition-all">
                                 <button onclick="document.getElementById('file-upload').click()" class="p-3 text-gray-400 hover:text-indigo-400 transition-colors rounded-xl flex-shrink-0 hover:bg-[#1C2336] focus:outline-none" title="Upload Document">
