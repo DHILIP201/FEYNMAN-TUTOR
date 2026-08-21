@@ -543,7 +543,7 @@
                                 <button onclick="document.getElementById('file-upload').click()" class="p-3 text-gray-400 hover:text-indigo-400 transition-colors rounded-xl flex-shrink-0 hover:bg-[#1C2336] focus:outline-none" title="Upload Document">
                                     <i class="fa-solid fa-paperclip text-lg"></i>
                                 </button>
-                                <input type="file" id="file-upload" accept="application/pdf,image/png,image/jpeg" class="hidden">
+                                <input type="file" id="file-upload" accept="application/pdf,image/png,image/jpeg" class="hidden" onchange="handleFileSelected(this)">
                                 
                                 <textarea id="message-input" rows="1" placeholder="Explain your concept back in your own words..." class="flex-1 max-h-32 min-h-[44px] outline-none resize-none p-2 py-3 text-gray-100 bg-transparent text-sm scrollbar-none" onkeydown="handleComposerKey(event)"></textarea>
                                 

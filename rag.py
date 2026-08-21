@@ -159,8 +159,15 @@ def query_rag(session_id: str, query: str, n_results: int = 4) -> list[dict]:
         for doc, meta in zip(results['documents'][0], results['metadatas'][0]):
             output.append({
                 "text": doc,
+                "content": doc,
                 "page": meta.get("page", 1),
                 "filename": meta.get("filename", "unknown.pdf")
             })
         return output
     return []
+
+
+def get_relevant_chunks(session_id: str, query: str = "core concepts and mechanics", top_k: int = 4) -> list[dict]:
+    """Compatibility alias for query_rag with top_k."""
+    return query_rag(session_id, query, n_results=top_k)
+

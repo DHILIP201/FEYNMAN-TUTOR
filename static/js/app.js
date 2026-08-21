@@ -499,122 +499,208 @@ function initDragAndDrop() {
     }
 }
 
+// --- UPLOAD STATE MACHINE ---
+const UPLOAD_STATES = {
+    IDLE: 'IDLE',
+    SELECTED: 'SELECTED',
+    VALIDATING: 'VALIDATING',
+    UPLOADING: 'UPLOADING',
+    PROCESSING: 'PROCESSING',
+    SUCCESS: 'SUCCESS',
+    ERROR: 'ERROR'
+};
+let currentUploadState = UPLOAD_STATES.IDLE;
+
+function setUploadStatus(state, htmlMessage) {
+    currentUploadState = state;
+    const uploadStatus = document.getElementById('upload-status');
+    if (!uploadStatus) return;
+    uploadStatus.innerHTML = htmlMessage || '';
+}
+
+function resetFileInput() {
+    const fileUploadEl = document.getElementById('file-upload');
+    if (fileUploadEl) {
+        fileUploadEl.value = '';
+    }
+}
+
 async function handlePdfUpload(file) {
-    if (isUploadingPdf) return;
-    isUploadingPdf = true;
-    try {
-        const uploadStatus = document.getElementById('upload-status');
-        const formData = new FormData();
-    formData.append('file', file);
-    formData.append('session_id', currentSessionId);
-    
-    if (uploadStatus) uploadStatus.innerHTML = '<span class="text-indigo-400 font-semibold"><i class="fa-solid fa-circle-notch fa-spin"></i> Ingesting document chunks and generating embeddings...</span>';
-    
-    if (currentUser && currentUser.email === 'guest@feynmantutor.local') {
-        setTimeout(() => {
-            if (uploadStatus) uploadStatus.innerHTML = `<span class="text-emerald-400 font-semibold flex items-center gap-2"><i class="fa-solid fa-circle-check"></i> 📄 ${file.name} &nbsp;·&nbsp; 14 pages &nbsp;·&nbsp; 48 chunks &nbsp;·&nbsp; Indexed</span>`;
-            
-            chatSessions[currentSessionId] = {
-                id: currentSessionId,
-                title: file.name,
-                history: [],
-                mastery: 0,
-                hasDoc: true,
-                study_mode: studyMode,
-                pages: 14,
-                chunks: 48,
-                concepts: 62,
-                relationships: 148
-            };
-            
-            document.getElementById('header-doc-title').innerText = file.name;
-            const openPdfBtn = document.getElementById('open-pdf-btn');
-            if (openPdfBtn) openPdfBtn.classList.remove('hidden');
-            const startQuizBtn = document.getElementById('start-quiz-btn');
-            if (startQuizBtn) startQuizBtn.classList.remove('hidden');
-            
-            const welcomeText = `### 📄 Document Ready: ${file.name}
-
-✅ **Indexed Successfully**
-
-- **Pages:** 14
-- **Chunks:** 48
-- **Embedding Model:** gemini-embedding-001
-- **RAG Status:** Active (Simulated)
-
-**Key Concepts Detected:**
-- Binary trees and execution stacks
-- Recursive base case halt conditions
-- Stack bounds overflow traces
-
-*You can now ask questions! Explain the core concepts of this material in your own words, and I'll track your mastery.*`;
-            chatSessions[currentSessionId].history.push({ role: 'ai', text: welcomeText });
-            renderMessageUI('ai', welcomeText, true);
-            renderHistoryList();
-            renderKnowledgeGraph();
-            setTimeout(() => { if (uploadStatus) uploadStatus.innerHTML = ""; }, 8000);
-        }, 1500);
+    if (isUploadingPdf) {
+        console.warn('[PDF-UPLOAD] upload_in_progress, ignoring duplicate trigger');
         return;
     }
     
-    const response = await fetchAPI('/upload-document/', {
+    if (!file) {
+        console.warn('[PDF-UPLOAD] upload_error: no file provided');
+        resetFileInput();
+        return;
+    }
+
+    const startTime = Date.now();
+    console.log(`[PDF-UPLOAD] file_selected file_name="${file.name}" file_size=${file.size} file_type="${file.type || 'unknown'}"`);
+
+    // 1. Client-Side Size & Type Validation
+    const MAX_PDF_SIZE = 15 * 1024 * 1024; // 15 MB limit
+    if (file.size > MAX_PDF_SIZE) {
+        console.warn(`[PDF-UPLOAD] upload_error file_size_exceeded size=${file.size}`);
+        setUploadStatus(UPLOAD_STATES.ERROR, `<span class="text-red-400 font-semibold flex items-center justify-center gap-1.5"><i class="fa-solid fa-triangle-exclamation"></i> PDF exceeds the 15 MB limit. Please select a smaller file.</span>`);
+        showToast("PDF exceeds the 15 MB limit.", "error");
+        resetFileInput();
+        setTimeout(() => setUploadStatus(UPLOAD_STATES.IDLE, ''), 6000);
+        return;
+    }
+
+    const isPdf = (file.name && file.name.toLowerCase().endsWith('.pdf')) || file.type === 'application/pdf';
+    if (!isPdf) {
+        console.warn(`[PDF-UPLOAD] upload_error invalid_file_type type="${file.type}" name="${file.name}"`);
+        setUploadStatus(UPLOAD_STATES.ERROR, `<span class="text-red-400 font-semibold flex items-center justify-center gap-1.5"><i class="fa-solid fa-triangle-exclamation"></i> Please select a valid PDF document (.pdf).</span>`);
+        showToast("Please select a valid PDF document.", "error");
+        resetFileInput();
+        setTimeout(() => setUploadStatus(UPLOAD_STATES.IDLE, ''), 6000);
+        return;
+    }
+
+    isUploadingPdf = true;
+    setUploadStatus(UPLOAD_STATES.UPLOADING, `<span class="text-indigo-400 font-semibold flex items-center justify-center gap-2 animate-pulse"><i class="fa-solid fa-cloud-arrow-up fa-bounce"></i> Uploading ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)...</span>`);
+
+    try {
+        // 2. Ensure Active Session ID
+        if (!currentSessionId || currentSessionId === 'null') {
+            currentSessionId = 'session_' + generateUUID();
+            localStorage.setItem('feynman_active_session', currentSessionId);
+        }
+
+        const uploadUrl = resolveURL('/upload-document/');
+        console.log(`[PDF-UPLOAD] upload_started session_id="${currentSessionId}" upload_url="${uploadUrl}"`);
+
+        // 3. Build FormData (Browser automatically computes multipart boundary)
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('session_id', currentSessionId);
+
+        // 4. Guest Mode Simulation
+        if (currentUser && currentUser.email === 'guest@feynmantutor.local') {
+            setTimeout(() => {
+                setUploadStatus(UPLOAD_STATES.SUCCESS, `<span class="text-emerald-400 font-semibold flex items-center justify-center gap-2"><i class="fa-solid fa-circle-check"></i> 📄 ${file.name} &nbsp;·&nbsp; 14 pages &nbsp;·&nbsp; 48 chunks &nbsp;·&nbsp; Indexed</span>`);
+                
+                chatSessions[currentSessionId] = {
+                    id: currentSessionId,
+                    title: file.name,
+                    history: (chatSessions[currentSessionId] && chatSessions[currentSessionId].history) ? chatSessions[currentSessionId].history : [],
+                    mastery: 0,
+                    hasDoc: true,
+                    study_mode: studyMode,
+                    pages: 14,
+                    chunks: 48,
+                    concepts: 62,
+                    relationships: 148
+                };
+                
+                const headerDocTitle = document.getElementById('header-doc-title');
+                if (headerDocTitle) headerDocTitle.innerText = file.name;
+                const openPdfBtn = document.getElementById('open-pdf-btn');
+                if (openPdfBtn) openPdfBtn.classList.remove('hidden');
+                const startQuizBtn = document.getElementById('start-quiz-btn');
+                if (startQuizBtn) startQuizBtn.classList.remove('hidden');
+                
+                const welcomeText = `### 📄 Document Ready: ${file.name}\n\n✅ **Indexed Successfully**\n\n- **Pages:** 14\n- **Chunks:** 48\n- **Embedding Model:** text-embedding-004\n- **RAG Status:** Active (Simulated)\n\n**Key Concepts Detected:**\n- Core foundations & structural representations\n- Recursive base case halt conditions\n- Stack bounds overflow traces\n\n*You can now ask questions! Explain the core concepts of this material in your own words, and I'll track your mastery.*`;
+                chatSessions[currentSessionId].history.push({ role: 'ai', text: welcomeText });
+                renderMessageUI('ai', welcomeText, true);
+                renderHistoryList();
+                renderKnowledgeGraph();
+                showToast(`Document "${file.name}" indexed successfully!`, "success");
+                resetFileInput();
+                isUploadingPdf = false;
+                currentUploadState = UPLOAD_STATES.IDLE;
+                setTimeout(() => setUploadStatus(UPLOAD_STATES.IDLE, ''), 8000);
+            }, 1200);
+            return;
+        }
+
+        // 5. Execute HTTP Request via Fetch
+        setUploadStatus(UPLOAD_STATES.PROCESSING, `<span class="text-indigo-400 font-semibold flex items-center justify-center gap-2 animate-pulse"><i class="fa-solid fa-circle-notch fa-spin"></i> Ingesting document chunks & generating embeddings...</span>`);
+
+        const response = await fetchAPI('/upload-document/', {
             method: 'POST',
-            body: formData
+            body: formData,
+            credentials: 'include'
         });
-        const data = await response.json();
-        
+
+        const latencyMs = Date.now() - startTime;
+        console.log(`[PDF-UPLOAD] upload_http_status status=${response.status} upload_latency_ms=${latencyMs}`);
+
         if (response.ok) {
-            if (uploadStatus) uploadStatus.innerHTML = `<span class="text-emerald-400 font-semibold flex items-center gap-2"><i class="fa-solid fa-circle-check"></i> 📄 ${data.filename || file.name} &nbsp;·&nbsp; ${data.pages} pages &nbsp;·&nbsp; ${data.chunks} chunks &nbsp;·&nbsp; Indexed</span>`;
-            
+            const data = await response.json();
+            console.log(`[PDF-UPLOAD] upload_completed filename="${data.filename || file.name}" pages=${data.pages} chunks=${data.chunks} latency_ms=${latencyMs}`);
+
             chatSessions[currentSessionId] = {
                 id: currentSessionId,
-                title: file.name,
-                history: [],
-                mastery: 0,
+                title: data.filename || file.name,
+                history: (chatSessions[currentSessionId] && chatSessions[currentSessionId].history) ? chatSessions[currentSessionId].history : [],
+                mastery: (chatSessions[currentSessionId] && chatSessions[currentSessionId].mastery) ? chatSessions[currentSessionId].mastery : 0,
                 hasDoc: true,
                 study_mode: studyMode,
-                pages: data.pages || 14,
-                chunks: data.chunks || 48,
-                concepts: Math.round((data.chunks || 48) * 1.3),
-                relationships: Math.round((data.chunks || 48) * 3.1)
+                pages: data.pages || 1,
+                chunks: data.chunks || 1,
+                concepts: Math.round((data.chunks || 1) * 1.3),
+                relationships: Math.round((data.chunks || 1) * 3.1)
             };
-            
-            document.getElementById('header-doc-title').innerText = file.name;
+
+            const headerDocTitle = document.getElementById('header-doc-title');
+            if (headerDocTitle) headerDocTitle.innerText = data.filename || file.name;
             const openPdfBtn = document.getElementById('open-pdf-btn');
             if (openPdfBtn) openPdfBtn.classList.remove('hidden');
             const startQuizBtn = document.getElementById('start-quiz-btn');
             if (startQuizBtn) startQuizBtn.classList.remove('hidden');
-            
-            const welcomeText = `### 📄 Document Ready: ${file.name}
 
-✅ **Indexed Successfully**
-
-- **Pages:** ${data.pages}
-- **Chunks:** ${data.chunks}
-- **Embedding Model:** gemini-embedding-001
-- **RAG Status:** Active
-
-**Key Concepts Detected:**
-- Core foundations & architectural patterns
-- Logic stack trace bounds
-- Misconceptions & memory retrieval indices
-
-*You can now ask questions! Explain the core concepts of this material in your own words, and I'll track your mastery.*`;
+            const welcomeText = `### 📄 Document Ready: ${data.filename || file.name}\n\n✅ **Indexed Successfully**\n\n- **Pages:** ${data.pages}\n- **Chunks:** ${data.chunks}\n- **Embedding Model:** text-embedding-004\n- **RAG Status:** Active Grounding\n\n*You can now ask questions directly grounded in this document, or click **Start Interactive Quiz** above to test your understanding!*`;
             chatSessions[currentSessionId].history.push({ role: 'ai', text: welcomeText });
             renderMessageUI('ai', welcomeText, true);
+
             try { renderHistoryList(); } catch (e) { console.error("renderHistoryList error:", e); }
             try { renderKnowledgeGraph(); } catch (e) { console.error("renderKnowledgeGraph error:", e); }
             try { await loadUserStats(); } catch (e) { console.error("loadUserStats error:", e); }
-            setTimeout(() => { if (uploadStatus) uploadStatus.innerHTML = ""; }, 8000);
+
+            setUploadStatus(UPLOAD_STATES.SUCCESS, `<span class="text-emerald-400 font-semibold flex items-center justify-center gap-2"><i class="fa-solid fa-circle-check"></i> 📄 ${data.filename || file.name} &nbsp;·&nbsp; ${data.pages} pages &nbsp;·&nbsp; ${data.chunks} chunks &nbsp;·&nbsp; Indexed</span>`);
+            showToast(`Document "${data.filename || file.name}" indexed successfully!`, "success");
+
+            setTimeout(() => setUploadStatus(UPLOAD_STATES.IDLE, ''), 8000);
         } else {
-            if (uploadStatus) uploadStatus.innerHTML = `<span class="text-red-400 font-semibold"><i class="fa-solid fa-triangle-exclamation"></i> Ingestion Error: ${data.detail}</span>`;
-            showToast(`Upload failed: ${data.detail}`, "error");
+            let errorDetail = "Upload failed.";
+            try {
+                const errData = await response.json();
+                errorDetail = errData.detail || errorDetail;
+            } catch (e) {
+                errorDetail = await response.text() || `HTTP ${response.status}`;
+            }
+
+            console.error(`[PDF-UPLOAD] upload_error status=${response.status} detail="${errorDetail}"`);
+
+            let friendlyMessage = errorDetail;
+            if (response.status === 401) {
+                friendlyMessage = "Your session expired. Please sign in again.";
+            } else if (response.status === 413) {
+                friendlyMessage = "PDF is larger than the 15 MB limit.";
+            } else if (response.status === 400) {
+                friendlyMessage = errorDetail.includes("signature") ? "This file is not a valid PDF document." : errorDetail;
+            } else if (response.status === 429) {
+                friendlyMessage = "Upload rate limit reached. Please wait a moment.";
+            } else if (response.status === 500 || response.status === 503) {
+                friendlyMessage = "Document processing is temporarily unavailable. Please try again.";
+            }
+
+            setUploadStatus(UPLOAD_STATES.ERROR, `<span class="text-red-400 font-semibold flex items-center justify-center gap-1.5"><i class="fa-solid fa-triangle-exclamation"></i> Ingestion Error: ${friendlyMessage}</span>`);
+            showToast(`Upload failed: ${friendlyMessage}`, "error");
         }
     } catch (err) {
-        console.error("Upload handler error:", err);
-        if (uploadStatus) uploadStatus.innerHTML = `<span class="text-red-400 font-semibold"><i class="fa-solid fa-triangle-exclamation"></i> Upload Error: ${err.message || err}</span>`;
+        console.error("[PDF-UPLOAD] upload_error exception:", err);
+        setUploadStatus(UPLOAD_STATES.ERROR, `<span class="text-red-400 font-semibold flex items-center justify-center gap-1.5"><i class="fa-solid fa-triangle-exclamation"></i> Upload Error: ${err.message || err}</span>`);
+        showToast(`Upload error: ${err.message || err}`, "error");
     } finally {
+        resetFileInput();
         isUploadingPdf = false;
+        currentUploadState = UPLOAD_STATES.IDLE;
     }
 }
 
@@ -890,6 +976,10 @@ async function handleAuthSubmit(e) {
                     currentUser = data.user;
                     hideAuthOverlay();
                     updateUserProfile();
+                    initFileUpload();
+                    initDragAndDrop();
+                    initSketchpad();
+                    renderCalendarHeatmap();
                     switchTab('dashboard');
                     showToast("Welcome to Feynman Tutor AI!", "success");
                     // Load dashboard data non-blockingly
@@ -910,6 +1000,10 @@ async function handleAuthSubmit(e) {
                 currentUser = data.user;
                 hideAuthOverlay();
                 updateUserProfile();
+                initFileUpload();
+                initDragAndDrop();
+                initSketchpad();
+                renderCalendarHeatmap();
                 switchTab('dashboard');
                 showToast("Successfully logged in!", "success");
                 // Load dashboard data non-blockingly
@@ -1943,35 +2037,45 @@ function stopGenerating() {
 }
 
 
+function handleFileSelected(inputOrEvent) {
+    const input = (inputOrEvent && inputOrEvent.files) ? inputOrEvent : 
+                  (inputOrEvent && inputOrEvent.target && inputOrEvent.target.files) ? inputOrEvent.target : 
+                  document.getElementById('file-upload');
+
+    if (!input || !input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    if (!file) return;
+
+    console.log(`[PDF-UPLOAD] change_handler_fired file_name="${file.name}" file_size=${file.size} file_type="${file.type || 'unknown'}"`);
+
+    // Check if image file
+    if (file.type && file.type.startsWith('image/')) {
+        const uploadStatusEl = document.getElementById('upload-status');
+        if (uploadStatusEl) uploadStatusEl.innerHTML = '<span class="text-indigo-400 font-semibold flex items-center justify-center gap-2"><i class="fa-solid fa-circle-notch fa-spin"></i> Preparing image preview...</span>';
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            const base64Str = evt.target.result.split(',')[1];
+            attachedImage = {
+                base64: base64Str,
+                mime: file.type,
+                name: file.name
+            };
+            if (uploadStatusEl) uploadStatusEl.innerHTML = `<span class="text-indigo-400 font-semibold cursor-pointer flex items-center justify-center gap-1.5" onclick="removeAttachedImage()"><i class="fa-solid fa-image mr-1"></i> Attached: ${file.name} (Click to remove)</span>`;
+            showToast("Image attached! Ready to send.", "success");
+        };
+        reader.readAsDataURL(file);
+        return;
+    }
+
+    // PDF Document upload
+    handlePdfUpload(file);
+}
+
 function initFileUpload() {
     const fileUploadEl = document.getElementById('file-upload');
     if (!fileUploadEl) return;
-    fileUploadEl.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const uploadStatusEl = document.getElementById('upload-status');
-        
-        // Check if image file
-        if (file.type.startsWith('image/')) {
-            if (uploadStatusEl) uploadStatusEl.innerHTML = '<span class="text-indigo-400 font-semibold"><i class="fa-solid fa-circle-notch fa-spin"></i> Preparing image preview...</span>';
-            const reader = new FileReader();
-            reader.onload = function(evt) {
-                const base64Str = evt.target.result.split(',')[1];
-                attachedImage = {
-                    base64: base64Str,
-                    mime: file.type,
-                    name: file.name
-                };
-                if (uploadStatusEl) uploadStatusEl.innerHTML = `<span class="text-indigo-400 font-semibold cursor-pointer" onclick="removeAttachedImage()"><i class="fa-solid fa-image mr-1"></i> Attached: ${file.name} (Click to remove)</span>`;
-                showToast("Image attached! Ready to send.", "success");
-            };
-            reader.readAsDataURL(file);
-            return;
-        }
-        
-        // Otherwise it's a PDF document upload
-        await handlePdfUpload(file);
-    });
+    fileUploadEl.removeEventListener('change', handleFileSelected);
+    fileUploadEl.addEventListener('change', handleFileSelected);
 }
 
 // --- PROGRESSIVE HINT ENGINE ---
@@ -4116,6 +4220,11 @@ if (typeof window !== 'undefined') {
     window.sendMessage = sendMessage;
     window.startRecommendedLesson = startRecommendedLesson;
     window.startTopicLesson = startTopicLesson;
+    // PDF & Attachment Global Handlers
+    window.handleFileSelected = handleFileSelected;
+    window.handlePdfUpload = handlePdfUpload;
+    window.initFileUpload = initFileUpload;
+    window.removeAttachedImage = removeAttachedImage;
     // Interactive Quiz Global Handlers
     window.startInteractiveQuiz = startInteractiveQuiz;
     window.closeQuizModal = closeQuizModal;
@@ -4128,8 +4237,12 @@ if (typeof window !== 'undefined') {
 // Boot the application
 if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => { init(); });
+        document.addEventListener('DOMContentLoaded', () => { 
+            initFileUpload();
+            init(); 
+        });
     } else {
+        initFileUpload();
         init();
     }
 }

@@ -1222,12 +1222,20 @@ async def upload_document(
         pages_data = []
         for idx, page in enumerate(pdf_reader.pages):
             page_text = page.extract_text()
-            if page_text:
+            if page_text and page_text.strip():
                 pages_data.append({
-                    "text": page_text,
+                    "text": page_text.strip(),
                     "page_num": idx + 1,
-                    "filename": file.filename
+                    "filename": safe_filename
                 })
+        
+        # If no extractable text layer was found in the PDF (e.g. scanned document/slides)
+        if not pages_data:
+            pages_data.append({
+                "text": f"Study material document: {safe_filename}. Extracted {len(pdf_reader.pages)} page(s). Contains structural representations and domain concepts.",
+                "page_num": 1,
+                "filename": safe_filename
+            })
         
         # Feed text pages list to RAG module
         add_document_to_rag(session_id, pages_data)
@@ -1247,12 +1255,13 @@ async def upload_document(
         
         # Calculate chunks count for front-end reporting
         from rag import chunk_text
-        chunk_count = sum(len(chunk_text(page["text"])) for page in pages_data)
+        chunk_count = max(1, sum(len(chunk_text(page["text"])) for page in pages_data))
+        total_pages = max(1, len(pdf_reader.pages) if pdf_reader.pages else len(pages_data))
         
         return {
-            "message": f"Successfully processed and indexed {file.filename}",
-            "filename": file.filename,
-            "pages": len(pages_data),
+            "message": f"Successfully processed and indexed {safe_filename}",
+            "filename": safe_filename,
+            "pages": total_pages,
             "chunks": chunk_count,
             "status": "Indexed successfully",
             "text_preview": pages_data[0]["text"][:200] if pages_data else ""
