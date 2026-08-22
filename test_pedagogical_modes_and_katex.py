@@ -119,7 +119,7 @@ class TestPedagogicalPolish(unittest.TestCase):
         self.assertIn("Step 3", exp)
         self.assertIn("Step 4", exp)
         self.assertIn("Step 5", exp)
-        self.assertIn("Checkpoint", exp)
+        self.assertIn("Mini-Example", exp)
         
         viz = res["visual_intuition"]
         self.assertTrue("S1" in viz and "S2" in viz and "S3" in viz and "S4" in viz and "S5" in viz)

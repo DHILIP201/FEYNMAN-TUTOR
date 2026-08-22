@@ -1457,6 +1457,20 @@ async def tutor_chat(
     )
     combined_context_text = f"{context_text}\n\n{memory_ctx['context_prompt_block']}"
 
+    # Select bounded, non-repeating presentation strategy
+    from ai_engine.teaching_engine import presentation_memory, PresentationVariant
+    selected_variant = presentation_memory.select_next_variant(
+        user_id=current_user.id,
+        canonical_topic=cleaned_user_topic,
+        lesson_mode=session.study_mode,
+        context_text=combined_context_text
+    )
+    presentation_memory.record_variant_used(
+        user_id=current_user.id,
+        canonical_topic=cleaned_user_topic,
+        variant=selected_variant
+    )
+
     learning_plan = feynman_engine.plan_learning_strategy(
         user_message=cleaned_user_topic,
         current_mastery=session.mastery,
@@ -1465,7 +1479,8 @@ async def tutor_chat(
     system_prompt = feynman_engine.prepare_system_prompt(
         plan=learning_plan,
         mistakes_text=mistakes_text,
-        context_text=combined_context_text
+        context_text=combined_context_text,
+        presentation_strategy=f"{selected_variant.value} ({selected_variant.name})"
     )
 
     try:
@@ -1528,7 +1543,8 @@ async def tutor_chat(
                 user_message=request.user_message,
                 current_mastery=session.mastery,
                 sources=sources_citation,
-                session_topic=cleaned_user_topic
+                session_topic=cleaned_user_topic,
+                variant=selected_variant
             )
             session.mastery = tutor_data["mastery_score"]
             ai_chat_msg = ChatMessage(
@@ -1549,7 +1565,8 @@ async def tutor_chat(
                 user_message=request.user_message,
                 current_mastery=session.mastery,
                 sources=sources_citation,
-                session_topic=cleaned_user_topic
+                session_topic=cleaned_user_topic,
+                variant=selected_variant
             )
             session.mastery = tutor_data["mastery_score"]
             ai_chat_msg = ChatMessage(
@@ -1563,7 +1580,12 @@ async def tutor_chat(
 
         raw_json["sources"] = sources_citation
         raw_json["canonical_topic"] = cleaned_user_topic
-        tutor_doc = feynman_engine.validate_and_build_document(raw_json, session.mastery, fallback_topic=cleaned_user_topic)
+        tutor_doc = feynman_engine.validate_and_build_document(
+            raw_json,
+            session.mastery,
+            fallback_topic=cleaned_user_topic,
+            variant=selected_variant
+        )
         tutor_data = tutor_doc.model_dump()
         tutor_data["blocks"] = feynman_engine.build_document_blocks(tutor_data)
 

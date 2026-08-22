@@ -862,6 +862,7 @@ async def request_tutor_quiz_hint(
 
 
 @router.post("/tutor-quiz/{quiz_id}/complete/")
+@router.post("/learner/tutor-quiz/{quiz_id}/complete/")
 async def complete_tutor_quiz(
     quiz_id: str,
     db: Session = Depends(get_db),
@@ -882,14 +883,20 @@ async def complete_tutor_quiz(
     weak_list = json.loads(quiz.weak_topics or "[]")
     strong_list = json.loads(quiz.strong_topics or "[]")
 
+    # Strict mutual exclusivity & deduplication
+    final_weak = list(dict.fromkeys(weak_list))
+    final_strong = list(dict.fromkeys([t for t in strong_list if t not in final_weak]))
+
     if quiz.score_percent >= 80:
         coach_tip = f"Outstanding mastery of {quiz.canonical_topic}! You demonstrate clear intuition. You are ready to advance to more complex variations."
     elif quiz.score_percent >= 50:
-        coach_tip = f"Solid foundation in {quiz.canonical_topic}. Review the teach-back checkpoints and intermediate transformations to lock in full mastery."
+        coach_tip = f"Solid foundation in {quiz.canonical_topic}. Review the key mechanisms and intermediate transformations to lock in full mastery."
     else:
         coach_tip = f"Take a moment to review {quiz.canonical_topic} in Simplify or Analogy mode. Focus on visualizing the input-to-output flow before retesting."
 
     quiz.coach_tip = coach_tip
+    quiz.strong_topics = json.dumps(final_strong)
+    quiz.weak_topics = json.dumps(final_weak)
     db.commit()
 
     return {
@@ -899,8 +906,8 @@ async def complete_tutor_quiz(
         "answered_count": quiz.answered_count,
         "correct_count": quiz.correct_count,
         "score_percent": quiz.score_percent,
-        "strong_topics": strong_list,
-        "weak_topics": weak_list,
+        "strong_topics": final_strong,
+        "weak_topics": final_weak,
         "coach_tip": coach_tip,
         "completed_at": quiz.completed_at.isoformat()
     }

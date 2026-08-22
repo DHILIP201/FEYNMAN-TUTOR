@@ -654,6 +654,9 @@ async def get_quiz_results(
 
     mastery_change = round(quiz.correct_count * 15 - quiz.incorrect_count * 10, 1)
 
+    final_weak = list(dict.fromkeys(weak_topics))
+    final_strong = list(dict.fromkeys([t for t in strong_topics if t not in final_weak]))
+
     return {
         "quiz_id": quiz_id,
         "status": quiz.status,
@@ -662,8 +665,8 @@ async def get_quiz_results(
         "incorrect_count": quiz.incorrect_count,
         "score_percent": quiz.score_percent,
         "mastery_change": mastery_change,
-        "strong_topics": list(strong_topics - set(weak_topics)),
-        "weak_topics": weak_topics,
+        "strong_topics": final_strong,
+        "weak_topics": final_weak,
         "recommendation": recommendation,
         "question_results": question_results,
         "completed_at": quiz.completed_at.isoformat() if quiz.completed_at else None

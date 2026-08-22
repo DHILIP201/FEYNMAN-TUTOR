@@ -3224,9 +3224,6 @@ function normalizeResponse(data) {
             if (vizContent && !vizContent.includes("Fallback") && isMermaidSource(vizContent)) {
                 blocks.push({ type: 'visualization', content: vizContent });
             }
-            if (data.next_learning_step) {
-                blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
-            }
             break;
 
         case "ANALOGY":
@@ -3236,9 +3233,6 @@ function normalizeResponse(data) {
             if (vizContent && !vizContent.includes("Fallback") && isMermaidSource(vizContent)) {
                 blocks.push({ type: 'visualization', content: vizContent });
             }
-            if (data.next_learning_step) {
-                blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
-            }
             break;
 
         case "STEP_BY_STEP":
@@ -3247,12 +3241,6 @@ function normalizeResponse(data) {
             }
             if (vizContent && !vizContent.includes("Fallback") && isMermaidSource(vizContent)) {
                 blocks.push({ type: 'visualization', content: vizContent });
-            }
-            if (data.reflection_prompt) {
-                blocks.push({ type: 'reflection_prompt', content: data.reflection_prompt });
-            }
-            if (data.next_learning_step) {
-                blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
             }
             break;
 
@@ -3274,22 +3262,6 @@ function normalizeResponse(data) {
 
             if (vizContent && !vizContent.includes("Fallback") && isMermaidSource(vizContent)) {
                 blocks.push({ type: 'visualization', content: vizContent });
-            }
-
-            if (data.mini_quiz) {
-                blocks.push({ type: 'knowledge_check', content: data.mini_quiz });
-            }
-
-            if (data.reflection_prompt) {
-                blocks.push({ type: 'reflection_prompt', content: data.reflection_prompt });
-            }
-
-            if (data.coach_recommendation && !data.coach_recommendation.toLowerCase().includes("review core mechanics and practice")) {
-                blocks.push({ type: 'coach_recommendation', content: data.coach_recommendation });
-            }
-
-            if (data.next_learning_step) {
-                blocks.push({ type: 'next_learning_step', content: data.next_learning_step });
             }
             break;
     }
@@ -4236,8 +4208,10 @@ async function completeQuiz() {
         // Refresh global user stats in background
         loadUserStats();
 
-        const scorePct = results.score_percent || 0;
-        const isPassing = scorePct >= 60;
+        const rawWeak = Array.isArray(results.weak_topics) ? results.weak_topics : [];
+        const rawStrong = Array.isArray(results.strong_topics) ? results.strong_topics : [];
+        const weakTopics = [...new Set(rawWeak)];
+        const strongTopics = [...new Set(rawStrong)].filter(t => !weakTopics.includes(t));
 
         body.innerHTML = `
             <div class="space-y-6 pb-2">
@@ -4277,8 +4251,8 @@ async function completeQuiz() {
                             <i class="fa-solid fa-circle-check"></i> Mastered Concepts
                         </span>
                         <div class="flex flex-wrap gap-1.5">
-                            ${(results.strong_topics && results.strong_topics.length > 0) ? 
-                                results.strong_topics.map(t => `<span class="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 px-2 py-0.5 rounded text-[11px] font-semibold">${t}</span>`).join('') :
+                            ${(strongTopics.length > 0) ? 
+                                strongTopics.map(t => `<span class="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 px-2 py-0.5 rounded text-[11px] font-semibold">${t}</span>`).join('') :
                                 '<span class="text-gray-500 italic text-[11px]">Continue practicing to lock in strong concepts.</span>'
                             }
                         </div>
@@ -4288,8 +4262,8 @@ async function completeQuiz() {
                             <i class="fa-solid fa-triangle-exclamation"></i> Concepts for Review
                         </span>
                         <div class="flex flex-wrap gap-1.5">
-                            ${(results.weak_topics && results.weak_topics.length > 0) ? 
-                                results.weak_topics.map(t => `<span class="bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded text-[11px] font-semibold">${t}</span>`).join('') :
+                            ${(weakTopics.length > 0) ? 
+                                weakTopics.map(t => `<span class="bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded text-[11px] font-semibold">${t}</span>`).join('') :
                                 '<span class="text-emerald-400 text-[11px]">Zero weak spots detected! Perfect clarity.</span>'
                             }
                         </div>
@@ -4897,6 +4871,11 @@ function renderTutorQuizResults(results) {
     const isMastered = pct >= 80;
     const cardId = activeTutorQuizState ? activeTutorQuizState.messageId : '';
 
+    const rawWeak = Array.isArray(results.weak_topics) ? results.weak_topics : [];
+    const rawStrong = Array.isArray(results.strong_topics) ? results.strong_topics : [];
+    const weakTopics = [...new Set(rawWeak)];
+    const strongTopics = [...new Set(rawStrong)].filter(t => !weakTopics.includes(t));
+
     body.innerHTML = `
         <div class="space-y-6 py-2">
             <!-- Score Banner -->
@@ -4919,7 +4898,7 @@ function renderTutorQuizResults(results) {
                         <i class="fa-solid fa-circle-check"></i> Strong Concepts
                     </div>
                     <ul class="text-xs text-gray-300 space-y-1">
-                        ${(results.strong_topics && results.strong_topics.length > 0) ? results.strong_topics.map(t => `<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> ${t}</li>`).join('') : '<li class="text-gray-500 italic">None recorded</li>'}
+                        ${(strongTopics.length > 0) ? strongTopics.map(t => `<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> ${t}</li>`).join('') : '<li class="text-gray-500 italic">None recorded</li>'}
                     </ul>
                 </div>
                 <div class="bg-[#0B0E17] border border-[#1F293D] rounded-xl p-4 space-y-2">
@@ -4927,7 +4906,7 @@ function renderTutorQuizResults(results) {
                         <i class="fa-solid fa-triangle-exclamation"></i> Needs Review
                     </div>
                     <ul class="text-xs text-gray-300 space-y-1">
-                        ${(results.weak_topics && results.weak_topics.length > 0) ? results.weak_topics.map(t => `<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> ${t}</li>`).join('') : '<li class="text-gray-500 italic">No weak spots detected!</li>'}
+                        ${(weakTopics.length > 0) ? weakTopics.map(t => `<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> ${t}</li>`).join('') : '<li class="text-gray-500 italic">No weak spots detected!</li>'}
                     </ul>
                 </div>
             </div>

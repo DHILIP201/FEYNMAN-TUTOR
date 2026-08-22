@@ -1,213 +1,26 @@
+"""
+ai_engine/response_validator.py
+================================
+Universal Feynman AI Response Validator & Multi-Angle Synthesis Engine.
+
+Enforces pedagogical quality contracts across all 4 modes (STANDARD, SIMPLIFY, ANALOGY, STEP_BY_STEP):
+1. Universal Canonical Topic Extraction (clean subject isolation, acronym preservation).
+2. Universal Multi-Angle Explanation Synthesis across ANY domain (CS, Math, Physics, Biology, Chemistry, Economics, History).
+3. Clean Chat Output Invariant: Strips prompt echoes, raw Mermaid leaks, and unwanted trailing checkpoints.
+4. Adaptive Diagram Binding: Connects canonical topics & presentation strategies to valid Mermaid SVGs.
+"""
+
 import re
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from .schemas import TutorDocument, LessonMode
 from .document_builder import DocumentBuilder
-
-TOPIC_VISUALS_REGISTRY = [
-    {
-        "topic": "transformer",
-        "aliases": ["transformer", "transformers", "bert", "gpt", "attention", "self-attention", "llm", "encoder", "decoder"],
-        "mermaid": """graph TD;
-  In["Tokens"] --> PE["Positional Encoding"];
-  PE --> Attn["Self-Attention"];
-  Attn --> AddNorm1["Add & Norm"];
-  AddNorm1 --> FFN["Feed-Forward"];
-  FFN --> AddNorm2["Add & Norm"];
-  AddNorm2 --> Out["Softmax Logits"];"""
-    },
-    {
-        "topic": "cnn",
-        "aliases": ["cnn", "convolutional", "convolutional neural network", "computer vision", "pooling", "feature map"],
-        "mermaid": """graph TD;
-  Img["Input Image"] --> Conv["Convolution"];
-  Conv --> Act["ReLU"];
-  Act --> Pool["Pooling"];
-  Pool --> FC["Dense Layers"];
-  FC --> Class["Prediction"];"""
-    },
-    {
-        "topic": "backpropagation",
-        "aliases": ["backpropagation", "backprop", "chain rule", "gradient computation", "error signal", "gradient"],
-        "mermaid": """graph TD;
-  Fwd["Forward Pass"] --> OutGrad["Output Loss"];
-  OutGrad --> Chain["Chain Rule"];
-  Chain --> HiddenGrad["Layer Gradients"];
-  HiddenGrad --> Optimizer["Optimizer Step"];
-  Optimizer --> Updated["Updated Weights"];"""
-    },
-    {
-        "topic": "gradient descent",
-        "aliases": ["gradient descent", "optimizer", "adam", "sgd", "minima", "loss landscape"],
-        "mermaid": """graph TD;
-  Init["Initialize"] --> Eval["Compute Gradient"];
-  Eval --> Step["Step Downhill"];
-  Step --> Check{"Converged?"};
-  Check -->|No| Eval;
-  Check -->|Yes| Converged["Optimal Minima"];"""
-    },
-    {
-        "topic": "activation",
-        "aliases": ["activation", "activation function", "relu", "sigmoid", "tanh", "softmax", "leaky relu"],
-        "mermaid": """graph TD;
-  Sum["Weighted Sum z"] --> Act{"Activation"};
-  Act -->|ReLU| NonLinear["ReLU: max(0,z)"];
-  Act -->|Sigmoid| Probability["Sigmoid: 1/(1+e^-z)"];
-  NonLinear --> Out["Neuron Output"];
-  Probability --> Out;"""
-    },
-    {
-        "topic": "neural network",
-        "aliases": ["neural network", "neural networks", "neural", "perceptron", "deep learning", "multi-layer perceptron", "mlp", "ann", "weights", "bias", "layer", "neuron"],
-        "mermaid": """graph TD;
-  In["Input Features"] --> InLayer["Input Layer"];
-  InLayer --> Hidden["Hidden Layers"];
-  Hidden --> Act["Activation"];
-  Act --> OutLayer["Output Layer"];
-  OutLayer --> Loss["Loss Function"];
-  Loss --> Backprop["Backpropagation"];
-  Backprop --> WeightUpdate["Weight Update"];
-  WeightUpdate -.->|Next Epoch| Hidden;"""
-    },
-    {
-        "topic": "binary search",
-        "aliases": ["binary search", "logarithmic search", "sorted array search", "divide and conquer search"],
-        "mermaid": """graph TD;
-  Arr["Sorted Array"] --> Mid["Compute Midpoint"];
-  Mid --> Comp{"arr[Mid] == Target?"};
-  Comp -->|Target < Mid| Left["Search Left Half"];
-  Comp -->|Target > Mid| Right["Search Right Half"];
-  Comp -->|Match| Found["Target Found"];"""
-    },
-    {
-        "topic": "merge sort",
-        "aliases": ["merge sort", "quick sort", "sorting algorithm", "divide and conquer", "quicksort"],
-        "mermaid": """graph TD;
-  Unsorted["Unsorted Array"] --> Split["Divide Array"];
-  Split --> Recurse["Recursive Sort"];
-  Recurse --> Merge["Merge Halves"];
-  Merge --> Sorted["Sorted Array"];"""
-    },
-    {
-        "topic": "linked list",
-        "aliases": ["linked list", "pointer", "node", "doubly linked", "singly linked list"],
-        "mermaid": """graph TD;
-  Head["Head Node"] --> N1["Node 1"];
-  N1 --> N2["Node 2"];
-  N2 --> Null["NULL Pointer"];"""
-    },
-    {
-        "topic": "hash table",
-        "aliases": ["hash table", "hash map", "dictionary", "key value", "collision", "hash function"],
-        "mermaid": """graph TD;
-  Key["Input Key"] --> Hash["Hash Function"];
-  Hash --> Index["Bucket Index"];
-  Index --> Bucket["Bucket Chaining"];
-  Bucket --> Value["O(1) Value"];"""
-    },
-    {
-        "topic": "heap",
-        "aliases": ["heap", "priority queue", "max heap", "min heap", "binary heap"],
-        "mermaid": """graph TD;
-  Root["Root Node"] --> L["Left Child"];
-  Root --> R["Right Child"];
-  L --> L1["Heap Invariant"];"""
-    },
-    {
-        "topic": "graph",
-        "aliases": ["graph", "bfs", "dfs", "dijkstra", "traversal", "shortest path", "adjacency"],
-        "mermaid": """graph TD;
-  Start["Start Vertex"] --> Visited["Visited State"];
-  Visited --> Expand["Explore Neighbors"];
-  Expand --> EdgeCheck{"Goal Reached?"};
-  EdgeCheck -->|No| Visited;
-  EdgeCheck -->|Yes| Path["Shortest Path"];"""
-    },
-    {
-        "topic": "dynamic programming",
-        "aliases": ["dynamic programming", "dp", "memoization", "tabulation", "subproblem", "optimal substructure"],
-        "mermaid": """graph TD;
-  Problem["Complex Problem"] --> Decompose["Subproblems"];
-  Decompose --> Check{"In Memo Table?"};
-  Check -->|Yes| Cached["Return Cached"];
-  Check -->|No| Compute["Compute Recurrence"];
-  Compute --> Combine["Optimal Solution"];"""
-    },
-    {
-        "topic": "recursion",
-        "aliases": ["recursion", "recursive", "call stack", "base case", "stack overflow"],
-        "mermaid": """graph TD;
-  Call["Function Call"] --> Base{"Base Case Met?"};
-  Base -->|No| Recurse["Self-Call"];
-  Base -->|Yes| Unwind["Unwind Stack"];
-  Recurse --> Call;"""
-    },
-    {
-        "topic": "tcp",
-        "aliases": ["tcp", "3-way handshake", "syn ack", "socket", "packet", "transmission control protocol"],
-        "mermaid": """graph TD;
-  Client["Client"] -->|1. SYN| Server["Server"];
-  Server -->|2. SYN-ACK| Client;
-  Client -->|3. ACK| Server;
-  Server --> Connected["Established Stream"];"""
-    },
-    {
-        "topic": "dns",
-        "aliases": ["dns", "domain name", "tld", "ip address lookup", "dns resolver"],
-        "mermaid": """graph TD;
-  Browser["Browser"] --> Resolv["DNS Resolver"];
-  Resolv --> Root["Root Server"];
-  Root --> TLD["TLD Server"];
-  TLD --> Auth["Authoritative Server"];
-  Auth --> IP["Resolved IP"];"""
-    },
-    {
-        "topic": "http",
-        "aliases": ["http", "https", "rest api", "endpoint", "gateway", "tls"],
-        "mermaid": """graph TD;
-  Client["Client App"] -->|HTTP Request| Gateway["API Gateway"];
-  Gateway --> Service["Backend Service"];
-  Service --> DB[("Database")];
-  Service -->|JSON 200| Client;"""
-    },
-    {
-        "topic": "paging",
-        "aliases": ["paging", "virtual memory", "page table", "page fault", "segmentation", "mmu"],
-        "mermaid": """graph TD;
-  VA["Virtual Address"] --> TLB{"TLB Hit?"};
-  TLB -->|Hit| Physical["Physical RAM"];
-  TLB -->|Miss| PageTable["Page Table Walk"];
-  PageTable --> Check{"Present Bit?"};
-  Check -->|Yes| Physical;
-  Check -->|No| Fault["Page Fault Handler"];"""
-    },
-    {
-        "topic": "deadlock",
-        "aliases": ["deadlock", "mutex", "concurrency", "race condition", "semaphore", "banker algorithm"],
-        "mermaid": """graph TD;
-  P1["Process 1 (Holds Lock A)"] -->|Requests| R2["Lock B"];
-  R2 -->|Held by| P2["Process 2 (Holds Lock B)"];
-  P2 -->|Requests| R1["Lock A"];
-  R1 -->|Held by| P1;"""
-    },
-    {
-        "topic": "sql",
-        "aliases": ["sql", "join", "inner join", "relational database", "query", "postgresql", "index"],
-        "mermaid": """graph TD;
-  Query["SQL Query"] --> Parser["Parser & Planner"];
-  Parser --> Optimizer["Query Optimizer"];
-  Optimizer --> Exec["Execution Engine"];
-  Exec --> Rows["Result Rows"];"""
-    },
-    {
-        "topic": "acid",
-        "aliases": ["acid", "transaction", "atomicity", "durability", "isolation", "consistency", "wal"],
-        "mermaid": """graph TD;
-  Tx["Transaction"] --> Atom["Atomicity (All/None)"];
-  Tx --> Cons["Consistency (Rules)"];
-  Tx --> Iso["Isolation (Concurrency)"];
-  Tx --> Dur["Durability (WAL Log)"];"""
-    }
-]
+from .teaching_engine import (
+    PresentationVariant,
+    DomainArchetype,
+    infer_domain_archetype,
+    generate_adaptive_diagram,
+    presentation_memory
+)
 
 KNOWN_ACRONYMS = {
     "Cnn": "CNN", "Rnn": "RNN", "Llm": "LLM", "Gpt": "GPT", "Bert": "BERT", 
@@ -216,8 +29,35 @@ KNOWN_ACRONYMS = {
     "Dp": "DP", "Bfs": "BFS", "Dfs": "DFS", "Ai": "AI", "Ml": "ML", "Ann": "ANN", "Mlp": "MLP"
 }
 
+TOPIC_VISUALS_REGISTRY = [
+    {
+        "topic": "transformer",
+        "mermaid": 'graph TD;\n  In["Tokens"] --> PE["Positional Encoding"];\n  PE --> Attn["Self-Attention"];\n  Attn --> AddNorm1["Add & Norm"];\n  AddNorm1 --> FFN["Feed-Forward"];\n  FFN --> AddNorm2["Add & Norm"];\n  AddNorm2 --> Out["Softmax Logits"];'
+    },
+    {
+        "topic": "cnn",
+        "mermaid": 'graph TD;\n  Img["Input Image"] --> Conv["Convolution"];\n  Conv --> Act["ReLU"];\n  Act --> Pool["Pooling"];\n  Pool --> FC["Dense Layers"];\n  FC --> Class["Prediction"];'
+    },
+    {
+        "topic": "backpropagation",
+        "mermaid": 'graph TD;\n  Fwd["Forward Pass"] --> OutGrad["Output Loss"];\n  OutGrad --> Chain["Chain Rule"];\n  Chain --> HiddenGrad["Layer Gradients"];\n  HiddenGrad --> Optimizer["Optimizer Step"];\n  Optimizer --> Updated["Updated Weights"];'
+    },
+    {
+        "topic": "gradient descent",
+        "mermaid": 'graph TD;\n  Init["Initialize"] --> Eval["Compute Gradient"];\n  Eval --> Step["Step Downhill"];\n  Step --> Check{"Converged?"};\n  Check -->|No| Eval;\n  Check -->|Yes| Converged["Optimal Minima"];'
+    },
+    {
+        "topic": "neural network",
+        "mermaid": 'graph TD;\n  In["Input Features"] --> InLayer["Input Layer"];\n  InLayer --> Hidden["Hidden Layers"];\n  Hidden --> Act["Activation"];\n  Act --> OutLayer["Output Layer"];\n  OutLayer --> Loss["Loss Function"];\n  Loss --> Backprop["Backpropagation"];\n  Backprop --> WeightUpdate["Weight Update"];\n  WeightUpdate -.->|Next Epoch| Hidden;'
+    },
+    {
+        "topic": "binary search",
+        "mermaid": 'graph TD;\n  Arr["Sorted Array"] --> Mid["Compute Midpoint"];\n  Mid --> Comp{"arr[Mid] == Target?"};\n  Comp -->|Target < Mid| Left["Search Left Half"];\n  Comp -->|Target > Mid| Right["Search Right Half"];\n  Comp -->|Match| Found["Target Found"];'
+    }
+]
+
 def clean_prompt_echo(text: str, is_explanation: bool = False) -> str:
-    """Removes user prompt echoes and any accidental diagram code from explanation opening strings."""
+    """Removes user prompt echoes, raw diagram markers, and trailing checkpoint clutter."""
     if not text:
         return ""
     stripped = text.strip()
@@ -225,6 +65,9 @@ def clean_prompt_echo(text: str, is_explanation: bool = False) -> str:
     stripped = re.sub(r'```mermaid[\s\S]*?```', '', stripped, flags=re.IGNORECASE).strip()
     stripped = re.sub(r'^\s*graph\s+(LR|TD|TB|RL|BT)[\s\S]*?;', '', stripped, flags=re.IGNORECASE).strip()
     
+    # Strip trailing checkpoint artifacts if present
+    stripped = re.sub(r'>\s*[\U0001F300-\U0001F9FF\U00002700-\U000027BF\U00002600-\U000026FF\s]*\*\*(Checkpoint|Step\s*\d+\s*Checkpoint|Analogy\s*Checkpoint):\*\*.*$', '', stripped, flags=re.IGNORECASE | re.MULTILINE).strip()
+
     if is_explanation:
         cleaned = re.sub(
             r'^(Teach me step by step until I understand|Teach me\s+(.+?)\s+step by step|Explain this concept even simpler|Explain this simpler|Explain\s+(.+?)\s+in simple terms|Give a real[- ]world analogy for|Give a real[- ]world analogy|Give an analogy for|Tell me about advanced applications of|Tell me about|Deep dive into)\s*[:\-\s]*',
@@ -277,7 +120,6 @@ def extract_canonical_topic(text: str, fallback_topic: Optional[str] = None) -> 
         return cleaned[0].upper() + cleaned[1:]
 
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # PREREQUISITE-AWARE NEXT LEARNING STEPS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -295,10 +137,11 @@ TOPIC_NEXT_STEPS = {
     "binary search": "Binary Search on Monotonic Ranges and Lower Bound Search",
     "recursion": "Call Stack Frame Limits and Recursive Tree Complexity",
     "merge sort": "Quicksort Partitioning and Divide-and-Conquer Recurrences",
-    "linked list": "Doubly Linked Lists and Fast-and-Slow Pointer Cycles",
-    "hash table": "Collision Resolution: Open Addressing vs Separate Chaining",
-    "graph": "Breadth-First Search (BFS) vs Depth-First Search (DFS) Traversal",
-    "dynamic programming": "Memoization vs Tabulation: The 0/1 Knapsack Problem"
+    "derivative": "Integrals and the Fundamental Theorem of Calculus",
+    "photosynthesis": "Cellular Respiration and ATP Energy Currency",
+    "newton": "Rotational Dynamics and Conservation of Angular Momentum",
+    "chemical bond": "Molecular Geometry and VSEPR Theory",
+    "supply and demand": "Elasticity and Market Equilibrium Shifts"
 }
 
 def get_prerequisite_next_step(canonical_topic: str) -> str:
@@ -306,288 +149,195 @@ def get_prerequisite_next_step(canonical_topic: str) -> str:
     for key, step in TOPIC_NEXT_STEPS.items():
         if key in topic_lower:
             return step
-    return f"Intermediate concepts and real-world implementations of {canonical_topic}"
+    return f"Advanced applications and optimization principles of {canonical_topic}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HIGH-FIDELITY STANDARD LESSON KNOWLEDGE REPOSITORY (350 - 500 WORDS)
+# UNIVERSAL MULTI-ANGLE STANDARD LESSON SYNTHESIZER
 # ─────────────────────────────────────────────────────────────────────────────
-STANDARD_TOPIC_LESSONS = {
-    "cnn": {
-        "canonical_topic": "Convolutional Neural Networks",
-        "simple_explanation": (
-            "A **Convolutional Neural Network (CNN)** is a specialized deep learning architecture engineered specifically for grid-structured data such as images, audio spectrograms, and video streams. Unlike fully connected networks that flatten spatial dimensions into unstructured 1D arrays, CNNs exploit translation equivariance and parameter sharing to extract localized hierarchical features directly from raw input pixels.\n\n"
-            "### 1. Convolutional Kernels & Feature Maps\n"
-            "Rather than connecting every input pixel to every neuron, small parameterized matrices called **filters (kernels)** slide across the input with a fixed stride and padding. At each window position, the kernel computes a 2D cross-correlation against the receptive field:\n"
-            "$$S(i, j) = (I * K)(i, j) = \\sum_m \\sum_n I(i+m, j+n) K(m, n)$$\n"
-            "This sliding dot-product produces **Feature Maps** that detect invariant low-level visual features such as contrast edges, orientations, textures, and gradient shifts across the entire image.\n\n"
-            "### 2. Non-Linear Activation & Rectified Linear Units\n"
-            "Each scalar in the feature map passes through an activation function $\\text{ReLU}(z) = \\max(0, z)$. Clamping negative values to zero creates sparse representations, accelerates gradient descent convergence, and prevents mathematical collapse across stacked convolutional layers.\n\n"
-            "### 3. Spatial Pooling & Downsampling\n"
-            "To achieve translation invariance and shrink memory consumption, **Max Pooling** layers extract the maximum activation across small windows (e.g. $2 \\times 2$ with stride 2). This downsamples spatial resolution by 75% while preserving dominant structural features and expanding the effective receptive field of subsequent layers.\n\n"
-            "### 4. Dense Classification & Softmax Output\n"
-            "Final high-level feature maps are flattened into a 1D vector and fed into fully connected dense layers that synthesize abstract motifs into global reasoning. The output layer generates class probabilities using the Softmax function: $\\sigma(\\mathbf{z})_i = \\frac{e^{z_i}}{\\sum_j e^{z_j}}$."
-        ),
-        "why_it_works": "Parameter sharing across sliding kernels reduces parameter count exponentially compared to standard dense layers ($O(K^2)$ vs $O(H \\cdot W)$), eliminating catastrophic overfitting on high-resolution image matrices while preserving 2D spatial locality.",
-        "example": "In autonomous driving systems, a CNN receives real-time camera frames: early layers isolate lane boundary contrast lines, intermediate layers recognize vehicle silhouettes and pedestrian postures, and dense layers trigger emergency braking actuations.",
-        "common_mistake": "Believing that CNNs can only process 2D images. CNNs are widely utilized for 1D temporal sequences (audio waveforms, genetic DNA sequences) and 3D spatial grids (MRI scans and LiDAR point clouds).",
-        "mini_quiz": "Why does parameter sharing in convolutional kernels make CNNs significantly more efficient than fully connected networks for processing large images?",
-        "reflection_prompt": "Explain the difference between Convolutional layers extracting localized spatial features and Fully Connected layers performing global reasoning.",
-        "coach_recommendation": "Track how the spatial height and width decrease through pooling while the channel depth increases across successive convolutional layers.",
-        "next_learning_step": "Padding, Stride, and Spatial Downsampling with Pooling",
-        "visual_intuition": 'graph TD;\n  Img["Input Image"] --> Conv["Convolution"];\n  Conv --> Act["ReLU"];\n  Act --> Pool["Pooling"];\n  Pool --> FC["Dense Layers"];\n  FC --> Class["Prediction"];'
-    },
-    "neural network": {
-        "canonical_topic": "Neural Networks",
-        "simple_explanation": (
-            "An **Artificial Neural Network (ANN)** is a computational architecture inspired by biological neural circuits, engineered to learn complex non-linear mappings directly from empirical data. Rather than relying on hardcoded procedural rules, a neural network functions as a universal function approximator that autonomously discovers feature representations and decision boundaries through iterative optimization.\n\n"
-            "### 1. The Artificial Neuron & Linear Transformation\n"
-            "The fundamental unit of a neural network is the artificial neuron (perceptron). A neuron receives an input vector $\\mathbf{x} = [x_1, x_2, \\dots, x_n]$, multiplies each feature by an adjustable weight parameter $w_i$, sums them together, and adds a scalar bias term $b$:\n"
-            "$$z = \\sum_{i=1}^n w_i x_i + b = \\mathbf{w}^T \\mathbf{x} + b$$\n"
-            "Weights modulate the relative influence of each feature, while the bias shifts the activation baseline independently of the inputs.\n\n"
-            "### 2. Non-Linear Activation Functions\n"
-            "The pre-activation scalar $z$ is passed through a non-linear activation function $\\sigma(z)$ (such as **ReLU**, **Sigmoid**, or **GELU**). Without non-linear activations, stacking multiple hidden layers would mathematically collapse into a single trivial linear regression. Non-linearities grant the network the mathematical expressiveness required to learn complex high-dimensional decision surfaces, curved manifolds, and subtle patterns.\n\n"
-            "### 3. Hierarchical Layered Forward Propagation\n"
-            "Neurons are organized into an **Input Layer** (ingesting raw features), one or more **Hidden Layers** (extracting progressively higher-level abstract representations), and a final **Output Layer** (generating predictions $\\hat{y}$). During forward propagation, signals flow sequentially from layer to layer, computing activations until a final prediction is formulated.\n\n"
-            "### 4. Loss Evaluation, Backpropagation & Optimization\n"
-            "The prediction $\\hat{y}$ is compared against ground truth labels $y$ using a Loss Function (such as Cross-Entropy for classification or Mean Squared Error for regression). Using the multivariable calculus **chain rule**, backpropagation computes the partial derivatives of the loss with respect to every weight ($\\frac{\\partial L}{\\partial w}$) and bias across the entire network. An optimizer (such as **Adam** or **Stochastic Gradient Descent**) updates parameters in the direction of steepest descent ($w \\leftarrow w - \\eta \\frac{\\partial L}{\\partial w}$), progressively minimizing prediction error across training epochs."
-        ),
-        "why_it_works": "Deep hierarchical architectures achieve exponential parameter efficiency over shallow models. Early layers detect primitive spatial or frequency features, intermediate layers compose them into structural motifs, and deeper layers formulate high-level semantic representations that generalize across unseen data.",
-        "example": "In automated medical imaging, an artificial neural network ingests chest X-ray pixel grids through convolutional and dense layers. Lower layers isolate contrast edges and bone contours, middle layers map lung tissue textures, and the final output layer calculates the diagnostic probability of pneumonia.",
-        "common_mistake": "Believing that neural networks store explicit database rules or 'think' logically. In reality, they are continuous mathematical function approximators whose weights encode statistical correlations across high-dimensional geometric spaces.",
-        "mini_quiz": "What is the mathematical consequence of removing non-linear activation functions from a 50-layer deep neural network?",
-        "reflection_prompt": "How would you explain the dual cycle of forward propagation (generating predictions) and backpropagation (updating weights) to a student who has never studied calculus?",
-        "coach_recommendation": "Trace how the error signal propagates backward layer by layer to see how each individual weight adjustment contributes to reducing the overall loss.",
-        "next_learning_step": "Convolutional Neural Networks and Spatial Features",
-        "visual_intuition": 'graph TD;\n  In["Input Features"] --> InLayer["Input Layer"];\n  InLayer --> Hidden["Hidden Layers"];\n  Hidden --> Act["Activation"];\n  Act --> OutLayer["Output Layer"];\n  OutLayer --> Loss["Loss Function"];\n  Loss --> Backprop["Backpropagation"];\n  Backprop --> WeightUpdate["Weight Update"];\n  WeightUpdate -.->|Next Epoch| Hidden;'
-    },
-    "transformer": {
-        "canonical_topic": "Transformers & Self-Attention",
-        "simple_explanation": (
-            "The **Transformer** is a neural network architecture introduced in 2017 that revolutionized artificial intelligence by replacing sequential recurrent connections with **Multi-Head Self-Attention**. This allows the model to process all tokens in a sequence simultaneously, capturing long-range semantic dependencies in parallel.\n\n"
-            "### 1. Token Embeddings & Positional Encodings\n"
-            "Input text is tokenized and converted into continuous dense vectors (embeddings). Because the transformer processes all tokens concurrently without recurrent recurrence, it adds fixed or learned **Positional Encodings** to token embeddings so the network knows the relative position and order of words in the sequence.\n\n"
-            "### 2. Scaled Dot-Product Self-Attention\n"
-            "For every token, the network computes three learned vectors: **Query ($Q$)**, **Key ($K$)**, and **Value ($V$)**. The attention mechanism calculates the compatibility between every pair of tokens:\n"
-            "$$\\text{Attention}(Q, K, V) = \\text{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V$$\n"
-            "This allows each word to dynamically weigh and absorb contextual information from every other word in the sequence regardless of distance.\n\n"
-            "### 3. Multi-Head Attention & Feed-Forward Blocks\n"
-            "Rather than performing a single attention calculation, **Multi-Head Attention** projects queries, keys, and values into multiple representation subspaces. Each head independently attends to distinct linguistic phenomena (syntax, pronouns, tense, semantic roles). Residual connections and Layer Normalization stabilize gradient flow across dozens of stacked transformer blocks."
-        ),
-        "why_it_works": "Self-attention eliminates the sequential bottleneck of RNNs ($O(1)$ sequential operations vs $O(n)$ path length). This enables massive parallelization on modern GPUs and eliminates vanishing gradients over long textual contexts.",
-        "example": "When reading 'The animal didn't cross the street because it was too tired', self-attention computes high affinity between the pronoun 'it' and 'the animal', resolving ambiguous references with contextual precision.",
-        "common_mistake": "Assuming self-attention and recurrent RNNs operate similarly. Transformers do not process words one by one; they build an $N \\times N$ pairwise attention matrix across the entire sequence simultaneously.",
-        "mini_quiz": "Why is the dot-product $QK^T$ scaled by $\\frac{1}{\\sqrt{d_k}}$ before applying the softmax function?",
-        "reflection_prompt": "Explain how the Query, Key, and Value vectors mimic a database lookup in soft, continuous space.",
-        "coach_recommendation": "Focus on how Multi-Head Attention allows the model to attend to grammatical structure and semantic meaning simultaneously.",
-        "next_learning_step": "Scaled Dot-Product Attention Mechanics and Multi-Head Projections",
-        "visual_intuition": 'graph TD;\n  In["Tokens"] --> PE["Positional Encoding"];\n  PE --> Attn["Self-Attention"];\n  Attn --> AddNorm1["Add & Norm"];\n  AddNorm1 --> FFN["Feed-Forward"];\n  FFN --> AddNorm2["Add & Norm"];\n  AddNorm2 --> Out["Softmax Logits"];'
-    },
-    "binary search": {
-        "canonical_topic": "Binary Search",
-        "simple_explanation": (
-            "**Binary Search** is an optimal divide-and-conquer search algorithm designed to locate the exact position of a target element within a strictly sorted collection in logarithmic time $O(\\log n)$.\n\n"
-            "### 1. The Sorted Invariant & Search Space\n"
-            "Binary search maintains two pointers: `low` at the start of the search range and `high` at the end. The algorithm relies entirely on the monotonic invariant of sorted arrays: all elements to the left of any index $m$ are strictly smaller than or equal to `arr[m]`, and all elements to the right are greater than or equal to `arr[m]`.\n\n"
-            "### 2. Midpoint Calculation & Boundary Elimination\n"
-            "At each iteration, the algorithm calculates the midpoint index: $m = \\text{low} + \\lfloor(\\text{high} - \\text{low})/2\\rfloor$ (which avoids integer overflow). It compares `arr[m]` with the target value:\n"
-            "- If `arr[m] == target`: The search succeeds immediately and returns index $m$.\n"
-            "- If `target < arr[m]`: The target cannot exist in the right half. The search range is updated to $\\text{high} = m - 1$.\n"
-            "- If `target > arr[m]`: The target cannot exist in the left half. The search range is updated to $\\text{low} = m + 1$.\n\n"
-            "### 3. Logarithmic Halving & Termination\n"
-            "Because each single comparison permanently discards exactly half ($50\\%$) of the remaining search space, a dataset of 1,000,000 items requires at most $\\lceil \\log_2(1,000,000) \\rceil = 20$ comparisons. The loop terminates either when the target is found or when $\\text{low} > \\text{high}$, proving the item is absent."
-        ),
-        "why_it_works": "Halving the problem size at every step yields a recurrence relation $T(n) = T(n/2) + O(1)$, which solves via the Master Theorem to $O(\\log n)$ time complexity and $O(1)$ auxiliary space.",
-        "example": "Looking up a name in a physical 1,000-page phone book: opening directly to page 500, checking the letter, and immediately discarding 500 pages in a single motion rather than flipping page by page.",
-        "common_mistake": "Attempting to execute binary search on an unsorted array or calculating midpoint as `(low + high) / 2` which can cause integer overflow in languages with fixed integer sizes.",
-        "mini_quiz": "How many total comparisons does Binary Search need in the worst-case scenario for an array containing 1,048,576 sorted elements?",
-        "reflection_prompt": "How would you adapt Binary Search to find the first occurrence of a duplicate value rather than any arbitrary index?",
-        "coach_recommendation": "Pay careful attention to off-by-one errors in boundary adjustments: `high = mid - 1` vs `low = mid + 1`.",
-        "next_learning_step": "Binary Search on Monotonic Ranges and Lower Bound Search",
-        "visual_intuition": 'graph TD;\n  Arr["Sorted Array"] --> Mid["Compute Midpoint"];\n  Mid --> Comp{"arr[Mid] == Target?"};\n  Comp -->|Target < Mid| Left["Search Left Half"];\n  Comp -->|Target > Mid| Right["Search Right Half"];\n  Comp -->|Match| Found["Target Found"];'
-    }
-}
 
-def synthesize_standard_lesson(canonical_topic: str, partial_exp: str = "", partial_why: str = "", partial_example: str = "") -> Dict[str, str]:
+def synthesize_standard_lesson(
+    canonical_topic: str,
+    partial_exp: str = "",
+    partial_why: str = "",
+    partial_example: str = "",
+    variant: PresentationVariant = PresentationVariant.ARCHITECTURE
+) -> Dict[str, str]:
     """
-    Synthesizes a deep, pedagogical master lesson (350-500 words) for any topic.
+    Synthesizes a rich, multi-perspective master lesson (350-500 words) for ANY topic
+    adapted to the chosen presentation variant (Architecture, Training/Process, Mechanism, Intuition, Application).
     """
-    topic_lower = canonical_topic.lower()
-    if any(k in topic_lower for k in ["cnn", "convolutional", "computer vision"]):
-        return dict(STANDARD_TOPIC_LESSONS["cnn"])
-    elif any(k in topic_lower for k in ["transformer", "attention", "self-attention", "bert", "gpt"]):
-        return dict(STANDARD_TOPIC_LESSONS["transformer"])
-    elif any(k in topic_lower for k in ["binary search"]):
-        return dict(STANDARD_TOPIC_LESSONS["binary search"])
-    elif any(k in topic_lower for k in ["neural", "perceptron", "deep learning", "ann", "mlp"]):
-        return dict(STANDARD_TOPIC_LESSONS["neural network"])
+    domain = infer_domain_archetype(canonical_topic)
+    t = canonical_topic.strip()
 
-    for key, lesson in STANDARD_TOPIC_LESSONS.items():
-        if key in topic_lower or any(alias in topic_lower for alias in [key, key.replace(' ', '')]):
-            return dict(lesson)
+    if variant == PresentationVariant.TRAINING_CYCLE or variant == PresentationVariant.PROCESS:
+        # Perspective: Learning process / Lifecycle / Forward & Feedback dynamics
+        explanation = (
+            f"**{t}** is best understood through its dynamic operational lifecycle. Rather than existing as a static set of rules, "
+            f"it operates through continuous, iterative refinement—systematically evaluating the delta between its current state and target objective.\n\n"
+            f"### 1. Forward Progression & State Transformation\n"
+            f"During the forward phase, raw inputs are ingested and propagated through a sequence of discrete operational stages. "
+            f"Each stage applies parameterized transformations, progressively converting unstructured signals into rich intermediate representations to formulate an initial prediction or state estimate.\n\n"
+            f"### 2. Quantitative Error Measurement & Loss Evaluation\n"
+            f"Once an output is produced, the system computes the exact discrepancy against the ground truth using an objective loss function. "
+            f"This quantitative metric provides a rigorous error signal, identifying exactly which internal parameters contributed to variance and guiding how subsequent adjustments should be prioritized.\n\n"
+            f"### 3. Feedback Propagation & Parameter Optimization\n"
+            f"Using systematic gradient signals and feedback propagation, adjustments are calculated and applied across parameters. "
+            f"Across repeated training cycles and epochs, the system continuously minimizes operational error, converging toward stable equilibrium and robust generalization."
+        )
+        why = (
+            f"Iterative feedback loops allow {t} to autonomously adapt to complex, high-dimensional distributions without requiring rigid manual heuristic tuning. "
+            f"By aligning continuous parameter shifts against empirical loss signals, the model internalizes the underlying statistical distribution rather than memorizing isolated training samples."
+        )
+        example = (
+            f"Consider training a predictive model for {t}: initial parameters produce high variance and large residuals. "
+            f"Across consecutive training epochs, backpropagated gradient updates systematically penalize erroneous weights, reducing mean squared loss from 1.42 down to 0.03."
+        )
 
-    opening = partial_exp if (partial_exp and len(partial_exp.split()) > 40) else (
-        f"**{canonical_topic}** is a foundational concept engineered to solve critical computational and architectural challenges. "
-        f"Understanding {canonical_topic} requires examining how state, data transformations, and decision boundaries interact within modern systems."
-    )
-    
-    explanation = (
-        f"{opening}\n\n"
-        f"### 1. Architectural Foundations & Invariants\n"
-        f"At its core, **{canonical_topic}** establishes a precise contract governing how raw inputs enter the computational pipeline. "
-        f"By structuring state transitions into well-defined operations, it enforces deterministic behavior and eliminates ambiguous edge cases.\n\n"
-        f"### 2. Intermediate Transformations & Core Mechanics\n"
-        f"Data flowing through {canonical_topic} undergoes continuous refinement across discrete operational stages. "
-        f"Each stage applies specialized transformations that convert complex raw inputs into structured intermediate representations optimized for downstream evaluation.\n\n"
-        f"### 3. Decision Thresholds & Optimization Feedback\n"
-        f"The final phase evaluates intermediate states against explicit decision rules to produce verified outputs. "
-        f"Feedback loops continually refine performance, ensuring predictable latency bounds and robust execution across environments."
-    )
+    elif variant == PresentationVariant.MECHANISM:
+        # Perspective: Mathematical and internal transformation mechanics
+        explanation = (
+            f"**{t}** is governed by deterministic mathematical transformations and operational principles. "
+            f"Understanding its core mechanism requires examining the exact sequence of computations applied to input variables.\n\n"
+            f"### 1. Input Vector Mapping & Parameterized Combinations\n"
+            f"Inputs enter the system as structured vectors or continuous state variables. Parameterized weights modulate the relative influence of each feature, "
+            f"computing linear dot-product combinations and balancing feature significance across dimensions.\n\n"
+            f"### 2. Non-Linear Activation & Decision Boundaries\n"
+            f"To capture intricate real-world interactions, linear combinations pass through non-linear activation functions. "
+            f"This mathematical transformation prevents multi-layer operations from collapsing into trivial linear systems, allowing {t} to construct complex, curved decision boundaries across high-dimensional space.\n\n"
+            f"### 3. Invariant Preservation & Numerical Convergence\n"
+            f"Throughout execution, {t} enforces rigorous computational invariants. Intermediate states are validated to preserve gradient flow, prevent numerical instability, and guarantee predictable runtime bounds."
+        )
+        why = (
+            f"Mathematical decoupling of representation layers enables {t} to compute complex functional mappings while maintaining numerical stability and asymptotic guarantees. "
+            f"Enforcing continuous differentiability and bounded gradients guarantees that optimizations converge reliably to valid solutions."
+        )
+        example = (
+            f"In practice, computing the dot product between an input vector $\\mathbf{x} = [0.8, 0.4]$ and weight vector $\\mathbf{w} = [1.5, -0.5]$ yields a scalar $z = 1.0$. "
+            f"Passing this through a non-linear activation $\\text{ReLU}(1.0)$ preserves positive activation while cleanly filtering spurious negative signals."
+        )
 
-    why = partial_why if (partial_why and len(partial_why.split()) > 20) else (
-        f"Underlying mechanics of {canonical_topic} achieve optimal efficiency by decoupling interface contracts from execution pipelines."
-    )
+    elif variant == PresentationVariant.INTUITION:
+        # Perspective: Intuitive conceptual model / geometric mental picture
+        explanation = (
+            f"To build lasting conceptual intuition for **{t}**, visualize it not merely as mathematical formulas, "
+            f"but as a structured mental model for organizing, refining, and navigating complex information.\n\n"
+            f"### 1. The Core Mental Model & Landscape\n"
+            f"Imagine standing on a vast, unfamiliar terrain. **{t}** acts as a compass, determining the most efficient direction by evaluating local contours, gradients, and structural landmarks at every step.\n\n"
+            f"### 2. Hierarchical Feature Composition\n"
+            f"Rather than attempting to master an entire problem in a single leap, {t} decomposes complexity into manageable, layered tiers. "
+            f"Early stages isolate simple primitives and localized clues, while intermediate stages weave these building blocks into cohesive structural motifs.\n\n"
+            f"### 3. Generalization & Noise Elimination\n"
+            f"By abstracting away superficial fluctuations, {t} isolates the underlying governing principles. "
+            f"This fundamental filtering ensures that insights gained on known examples transfer seamlessly to novel, unencountered challenges."
+        )
+        why = (
+            f"Hierarchical feature composition allows {t} to extract invariant signals from noisy real-world data while avoiding memorization of superficial patterns. "
+            f"This multi-scale abstraction ensures that core semantic concepts remain resilient against localized noise and sensor distortions."
+        )
+        example = (
+            f"When identifying an image, early stages detect simple high-contrast edges and texture gradients. "
+            f"Intermediate stages combine these edges into geometric shapes like circles and rectangles, and the top stage integrates shapes into a recognizable object identity."
+        )
 
-    ex = partial_example if (partial_example and len(partial_example.split()) > 15) else (
-        f"In modern systems, {canonical_topic} orchestrates data flows, manages concurrent state, and optimizes computational throughput."
-    )
+    elif variant == PresentationVariant.APPLICATION:
+        # Perspective: Real-world engineering / practical system deployment
+        explanation = (
+            f"In production software and modern engineering architectures, **{t}** functions as an indispensable engine for high-throughput, mission-critical problem solving.\n\n"
+            f"### 1. Production Pipeline Integration\n"
+            f"When deployed in industrial systems, {t} ingests live event telemetry, applies optimized transformations in real time, "
+            f"and generates high-confidence decisions under strict latency budgets and computational constraints.\n\n"
+            f"### 2. Engineering Trade-offs & Resource Optimization\n"
+            f"Architecting with {t} requires balancing memory footprint, computational complexity, and inference latency. "
+            f"Practitioners employ techniques such as parallelization, vectorization, caching, and precision tuning to maximize throughput across hardware environments.\n\n"
+            f"### 3. Resilience, Verification & Edge Cases\n"
+            f"Robust implementations incorporate proactive validation layers, comprehensive error boundaries, and defensive fallback strategies to maintain uninterrupted reliability under extreme workloads."
+        )
+        why = (
+            f"Modular computational design ensures {t} scales seamlessly across distributed clusters, embedded devices, and real-time operational workflows. "
+            f"Decoupled components allow independent horizontal scaling and low-latency cached inference in high-concurrency environments."
+        )
+        example = (
+            f"A production recommendation or inference cluster serving 50,000 requests per second utilizes vectorized batches of {t}, "
+            f"executing SIMD operations on GPU hardware to deliver sub-10 millisecond response latencies."
+        )
+
+    else:
+        # Default: ARCHITECTURE perspective (Structural components & layers)
+        if any(k in canonical_topic.lower() for k in ["cnn", "convolutional", "computer vision"]):
+            explanation = (
+                "**Convolutional Neural Networks (CNNs)** are deep learning architectures purpose-built to process grid-structured data like images. "
+                "They replace traditional matrix multiplication with discrete convolution operations, drastically reducing parameter counts while preserving spatial locality across visual dimensions.\n\n"
+                "### 1. Architectural Foundations & Grid Ingestion\n"
+                "Images enter as 3D numerical tensors ($H \\times W \\times C$). Unlike fully connected networks that flatten images into 1D vectors and lose spatial geometry, "
+                "CNNs maintain height and width dimensions throughout early layers, allowing the network to detect localized spatial relationships and spatial neighborhoods.\n\n"
+                "### 2. Convolutional Kernels & Feature Maps with ReLU\n"
+                "Small parameter matrices called filters or kernels ($3 \\times 3$ or $5 \\times 5$) slide across the input tensor with a specified stride and padding. "
+                "At each position, dot-products compute 2D Feature Maps highlighting visual patterns like edges and textures. "
+                "Applying $\\text{ReLU}(z) = \\max(0, z)$ zeroes out negative activations, creating sparse, non-linear feature representations that capture intricate visual hierarchies.\n\n"
+                "### 3. Spatial Pooling & Dimensionality Reduction\n"
+                "Max Pooling partitions feature maps into small windows (e.g. $2 \\times 2$) and retains only the maximum activation value. "
+                "This downsampling reduces spatial dimensions by 75%, lowering computational cost while providing translation invariance against minor spatial shifts and rotations.\n\n"
+                "### 4. Dense Classification with Softmax\n"
+                "Final pooled feature maps are flattened into a 1D vector and passed through fully connected dense layers. "
+                "The final layer applies Softmax to output a normalized probability distribution across target classification labels."
+            )
+            why = (
+                "Weight sharing and local receptive fields reduce parameter complexity by orders of magnitude compared to dense networks. "
+                "Translational invariance ensures an object is recognized regardless of its exact coordinate location in the image, while gradient propagation remains stable through ReLU activations."
+            )
+            example = (
+                "When classifying a handwritten digit, early convolutional layers detect line edges and stroke endpoints, "
+                "middle layers assemble strokes into loops and curves, and fully connected layers output a 98.4% confidence prediction for digit '7'."
+            )
+        else:
+            explanation = (
+                f"**{t}** represents a foundational architectural paradigm engineered to solve complex analytical, computational, and structural challenges. "
+                f"Its framework consists of carefully decoupled layers and interfaces that collaborate to transform raw inputs into verified, actionable results.\n\n"
+                f"### 1. Ingestion Interface & Feature Structuring\n"
+                f"Inputs enter the system through standardized ingestion interfaces. Features are validated, normalized, and mapped into structured representations to ensure predictable numerical behavior across execution paths.\n\n"
+                f"### 2. Core Processing Subsystems & Intermediate Layers\n"
+                f"Specialized intermediate subsystems execute core transformations. Each stage applies domain-specific operators, progressively refining data and extracting hierarchical representations across depth.\n\n"
+                f"### 3. Output Synthesis & Decision Boundaries\n"
+                f"The final architectural tier synthesizes intermediate representations into conclusive predictions or state transitions, verified against calibrated confidence thresholds before release."
+            )
+            why = (
+                f"Clear architectural separation of concerns simplifies testing, enforces deterministic guarantees, and maximizes parallel throughput for {t}. "
+                f"By isolating feature ingestion, state transformation, and output synthesis into distinct modular boundaries, systems can be optimized independently."
+            )
+            example = (
+                f"In a computer vision or data analysis pipeline, the input matrix is parsed by normalized tensor loaders, "
+                f"processed across parallel convolution or transformation layers, and projected into a compact classification vector with high precision."
+            )
+
+    # Generate matching adaptive diagram
+    viz = generate_adaptive_diagram(canonical_topic, variant, "STANDARD", explanation)
 
     return {
         "canonical_topic": canonical_topic,
         "simple_explanation": explanation,
         "why_it_works": why,
-        "example": ex,
-        "common_mistake": f"Confusing the high-level interface of {canonical_topic} with its low-level execution mechanics and internal representations.",
-        "mini_quiz": f"What is the primary architectural invariant maintained by {canonical_topic} during execution?",
-        "reflection_prompt": f"How would you explain the core mechanism of {canonical_topic} and its primary operational trade-offs to a peer?",
+        "example": example,
+        "common_mistake": f"Confusing the high-level interface of {canonical_topic} with its internal mathematical representations and execution mechanics.",
+        "mini_quiz": f"What is the primary role of the intermediate transformation stage in {canonical_topic}?",
+        "reflection_prompt": f"How would you explain the core mechanism of {canonical_topic} to a fellow learner?",
         "coach_recommendation": f"Focus on how {canonical_topic} structures data transformations and optimizes its decision boundaries.",
         "next_learning_step": get_prerequisite_next_step(canonical_topic),
-        "visual_intuition": f'graph TD;\n  In["Input Data"] --> Process["{canonical_topic} Core Logic"];\n  Process --> Out["Verified Output"];'
+        "visual_intuition": viz
     }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HIGH-FIDELITY ANALOGY KNOWLEDGE REPOSITORY (120 - 180 WORDS)
+# UNIVERSAL SIMPLIFY LESSON SYNTHESIZER (80 - 120 WORDS)
 # ─────────────────────────────────────────────────────────────────────────────
-ANALOGY_TOPIC_LESSONS = {
-    "cnn": {
-        "canonical_topic": "Convolutional Neural Networks",
-        "simple_explanation": (
-            "Think of a **Convolutional Neural Network (CNN)** like a team of detectives examining a large mystery photograph.\n\n"
-            "• **Inspectors with Magnifying Glasses (Convolutional Filters):** Detectives slide small magnifying glasses across the photo patch by patch, hunting for basic local clues—a sharp edge, a color corner, or a curve.\n"
-            "• **Clue Map Notepads (Feature Maps & ReLU):** Every time an inspector spots a clue, they highlight it on a summary notepad and ignore blank background space.\n"
-            "• **Summary Index Cards (Pooling Layers):** A coordinator condenses large notepads into essential bullet points, keeping only the strongest clues so the team isn't overwhelmed.\n"
-            "• **Lead Detective Conference (Fully Connected Layers):** The chief detective reviews all collected clue cards together and declares the final verdict: *\"This is a bicycle!\"*\n\n"
-            "> 🔍 **Analogy Checkpoint:** In this detective team analogy, what real-world role corresponds to the Convolutional Filter scanning pixel patches?"
-        ),
-        "why_it_works": "The detective team analogy physically mirrors local receptive fields (inspectors), activation thresholding (highlighting), spatial pooling (summaries), and final dense classification (the lead detective).",
-        "example": "A photo detective noticing whiskers, pointy ears, and a button nose before concluding the full image is a cat.",
-        "common_mistake": "Thinking the lead detective looks at individual raw pixels rather than synthesized clue summaries.",
-        "mini_quiz": "In the photo detective analogy, what corresponds to the pooling layer shrinking the feature map?",
-        "reflection_prompt": "How would you adapt this detective analogy to explain how self-driving cars detect pedestrians?",
-        "coach_recommendation": "Anchor your mental model on how local pattern clues combine into high-level object concepts.",
-        "next_learning_step": "Padding, Stride, and Spatial Downsampling with Pooling",
-        "visual_intuition": 'graph LR;\n  Photo["Photograph"] --> Inspectors["Filter Inspectors"] --> Clues["Pattern Clues"] --> Summary["Summary Notes"] --> Chief["Lead Detective"] --> Verdict["Final Identity"];'
-    },
-    "neural network": {
-        "canonical_topic": "Neural Networks",
-        "simple_explanation": (
-            "Think of an **Artificial Neural Network** like a multi-station gourmet restaurant kitchen perfecting a signature recipe.\n\n"
-            "• **Prep Station (Input Layer):** Raw ingredients arrive—chopped, measured, and organized like raw input features.\n"
-            "• **Line Cook Stations (Hidden Layers & Weights):** Line cooks combine ingredients, adjusting spice and heat dials to balance recipe flavors.\n"
-            "• **Head Chef Taste Test (Activation & Output):** The head chef tastes the dish against strict restaurant standards and serves it to the guest.\n"
-            "• **Customer Review & Recipe Tweak (Loss & Backpropagation):** If a customer sends a dish back because it was too salty, the head chef traces the error backwards, instructing the line cook to reduce the salt ratio on the next order.\n\n"
-            "> 🍲 **Analogy Checkpoint:** In the kitchen analogy, what real-world event corresponds to backpropagation updating parameter weights?"
-        ),
-        "why_it_works": "The kitchen analogy physically grounds forward propagation (cooking), loss quantification (customer feedback), and backpropagation (recipe adjustment).",
-        "example": "Refining a pasta sauce recipe across 100 tastings until the acidity, salt, and sweetness reach absolute perfection.",
-        "common_mistake": "Focusing solely on the food served rather than how customer feedback flows backward to adjust ingredient dials.",
-        "mini_quiz": "In the restaurant kitchen analogy, what corresponds to the loss function?",
-        "reflection_prompt": "Can you create another analogy for neural network training using sports coaching or musical rehearsals?",
-        "coach_recommendation": "Notice how customer feedback directly mirrors error loss minimization.",
-        "next_learning_step": "Convolutional Neural Networks and Spatial Features",
-        "visual_intuition": 'graph LR;\n  Ingredients["Raw Ingredients"] --> LineCooks["Line Cooks Adjust Spices"] --> Chef["Head Chef Taste Test"] --> Feedback["Customer Feedback"] --> Refine["Recipe Refined"];'
-    },
-    "transformer": {
-        "canonical_topic": "Transformers & Self-Attention",
-        "simple_explanation": (
-            "Think of the **Transformer** like a buzzing round-table conference of global experts working together on a complex document.\n\n"
-            "• **Name Badges (Positional Encodings):** Every expert wears a badge showing where their paragraph sits in the document.\n"
-            "• **Asking Questions (Query Vector $Q$):** Each expert asks: *\"Who has context on what I'm writing?\"*\n"
-            "• **Expertise Tags (Key Vector $K$):** Other experts hold up tags declaring their specialized knowledge.\n"
-            "• **Shared Knowledge (Value Vector $V$):** When an expert's question matches another's tag, they pass detailed notes simultaneously across the table, updating their understanding in parallel.\n\n"
-            "> 💬 **Analogy Checkpoint:** In this conference analogy, why is it faster than passing a single notebook sequentially from person to person?"
-        ),
-        "why_it_works": "The round-table conference analogy illustrates parallel self-attention (note-passing), query-key compatibility matching, and collective contextual consensus.",
-        "example": "A translator resolving what 'it' means in a sentence by instantly conferring with the expert holding the noun 'the street'.",
-        "common_mistake": "Assuming experts must take turns speaking one by one instead of broadcasting and receiving notes simultaneously.",
-        "mini_quiz": "In the conference analogy, what vector matches against the Query question?",
-        "reflection_prompt": "Explain how multi-head attention is like having multiple teams of experts focusing on grammar, tone, and facts separately.",
-        "coach_recommendation": "Visualize all experts passing notes concurrently rather than waiting in a queue.",
-        "next_learning_step": "Scaled Dot-Product Attention Mechanics and Multi-Head Projections",
-        "visual_intuition": 'graph LR;\n  Speakers["Conference Experts"] --> Matching["Query & Key Matching"] --> Notes["Shared Notes"] --> Consensus["Unified Understanding"];'
-    },
-    "binary search": {
-        "canonical_topic": "Binary Search",
-        "simple_explanation": (
-            "Think of **Binary Search** like playing a high-low number guessing game for a secret number between 1 and 100.\n\n"
-            "• **First Guess (Midpoint):** You don't guess 1, 2, 3 in order. You guess **50** right in the middle.\n"
-            "• **The Clue (Comparison):** Your friend says *\"Higher!\"*\n"
-            "• **Discarding the Half (Search Space Elimination):** In one second, you permanently throw away numbers 1 through 50. You now only have 51–100 to search.\n"
-            "• **Next Guess (Repeat Halving):** You guess 75, then 88, pinpointing the exact secret number in at most 7 total guesses!\n\n"
-            "> 🎯 **Analogy Checkpoint:** If the range was 1 to 1,000, why can you find any number in just 10 guesses?"
-        ),
-        "why_it_works": "The high-low guessing game intuitively demonstrates exponential reduction of the search space with every binary decision.",
-        "example": "Flipping open a physical dictionary right to the middle letter 'M' to decide whether to search the front or back half.",
-        "common_mistake": "Trying to play the high-low game when the pages or numbers are shuffled in random order.",
-        "mini_quiz": "Why does the dictionary have to be sorted for the middle-flip strategy to work?",
-        "reflection_prompt": "How would you adapt Binary Search to find the first occurrence of a duplicate value rather than any arbitrary index?",
-        "coach_recommendation": "Remember that each single question cuts all remaining possibilities strictly in half.",
-        "next_learning_step": "Binary Search on Monotonic Ranges and Lower Bound Search",
-        "visual_intuition": 'graph LR;\n  Guess50["Guess Midpoint 50"] --> Higher["Friend Says Higher"] --> Discard["Discard 1 to 50"] --> Guess75["Guess 75"] --> Target["Secret Found"];'
-    }
-}
 
-def synthesize_analogy_lesson(canonical_topic: str) -> Dict[str, str]:
-    """
-    Synthesizes a pure real-world analogy lesson (120-180 words) with explicit mapping and analogy diagram.
-    """
-    topic_lower = canonical_topic.lower()
-    for key, lesson in ANALOGY_TOPIC_LESSONS.items():
-        if key in topic_lower or any(alias in topic_lower for alias in [key, key.replace(' ', '')]):
-            return dict(lesson)
-
-    explanation = (
-        f"Think of **{canonical_topic}** like a specialized airport luggage sorting terminal.\n\n"
-        f"• **Check-In Counter (Input Intake):** Bags arrive with luggage tags indicating their weight and destination.\n"
-        f"• **Automated Conveyor Scanners (Intermediate Processing):** High-speed barcode scanners read labels, routing bags through specialized sorter gates.\n"
-        f"• **Quality Inspection (Decision Thresholds):** Security sensors verify tag accuracy before loading onto the correct flight.\n"
-        f"• **System Re-routing (Feedback Adjustments):** If a bag is misdirected, the central routing computer recalibrates its switch timers for all subsequent bags.\n\n"
-        f"> ✈️ **Analogy Checkpoint:** In this airport luggage terminal analogy, what real-world action represents processing and routing the inputs?"
-    )
-
-    return {
-        "canonical_topic": canonical_topic,
-        "simple_explanation": explanation,
-        "why_it_works": f"The airport sorting terminal provides a physical mental model for how {canonical_topic} ingests, processes, and optimizes its operational flow.",
-        "example": f"Luggage seamlessly reaching the correct departure gate through automated scanner coordination.",
-        "common_mistake": f"Thinking baggage handlers inspect every bag manually rather than relying on automated conveyor routing.",
-        "mini_quiz": f"In the sorting terminal analogy, how does the system recover when an item is misdirected?",
-        "reflection_prompt": f"Can you map the components of {canonical_topic} to another real-world logistics or transportation system?",
-        "coach_recommendation": f"Focus on how tag routing and feedback adjustment mirror the internal mechanism of {canonical_topic}.",
-        "next_learning_step": get_prerequisite_next_step(canonical_topic),
-        "visual_intuition": f'graph LR;\n  Arrival["Luggage Arrives"] --> Scanners["Barcode Scanners"] --> Gates["Sorter Gates"] --> Flight["Correct Flight"];'
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HIGH-FIDELITY SIMPLIFY KNOWLEDGE REPOSITORY (80 - 120 WORDS)
-# ─────────────────────────────────────────────────────────────────────────────
 def synthesize_simplify_lesson(canonical_topic: str) -> Dict[str, str]:
     """
     Synthesizes a concise, jargon-free ELI5 explanation (80-120 words) with simplified diagram.
     """
     topic_lower = canonical_topic.lower()
+    t = canonical_topic.strip()
+
     if any(k in topic_lower for k in ["cnn", "convolutional", "computer vision"]):
         exp = (
             "Imagine a team of puzzle solvers looking at a photograph. The first solver finds small lines and edges. "
@@ -609,330 +359,403 @@ def synthesize_simplify_lesson(canonical_topic: str) -> Dict[str, str]:
             "By cutting the pages in half each time, you find the word in just a few quick flips!"
         )
         viz = 'graph LR;\n  Array["Sorted Array"] --> Mid["Check Midpoint"] --> Discard["Discard Half"] --> Target["Target Found"];'
+    elif any(k in topic_lower for k in ["derivative", "calculus", "slope"]):
+        exp = (
+            "Imagine riding in a car. The speedometer doesn't tell you the average speed of your entire trip—it tells you your speed right at this exact split-second. "
+            "A derivative is just a mathematical speedometer. It measures how fast something is changing at one exact moment!"
+        )
+        viz = 'graph LR;\n  Position["Car Position"] --> Speedometer["Derivative dy/dx"] --> InstantSpeed["Speed Right Now"];'
+    elif any(k in topic_lower for k in ["photosynthesis", "plant"]):
+        exp = (
+            "Think of a plant leaf like a tiny solar-powered kitchen. The plant catches sunlight through its green solar panels, "
+            "drinks water from the soil, and breathes in carbon dioxide from the air. It bakes these ingredients into sweet sugar energy for food, and releases fresh oxygen for us to breathe!"
+        )
+        viz = 'graph LR;\n  Ingredients["Sunlight + Water + CO2"] --> Kitchen["Leaf Chloroplasts"] --> Products["Sugar Food + Oxygen"];'
+    elif any(k in topic_lower for k in ["newton", "force", "acceleration"]):
+        exp = (
+            "Imagine pushing a shopping cart. If the cart is empty (small mass), a gentle push sends it zooming forward fast (high acceleration). "
+            "If the cart is loaded with heavy groceries (large mass), you need a much harder push to get the same speed. That's Newton's Second Law: Force equals mass times acceleration!"
+        )
+        viz = 'graph LR;\n  Push["Push (Force F)"] --> Cart["Cart Weight (Mass m)"] --> SpeedUp["Speed Up (Acceleration a)"];'
     else:
         exp = (
-            f"Think of {canonical_topic} like an assembly line where each station performs one simple, clear task. "
+            f"Think of {t} like an assembly line where each station performs one simple, clear task. "
             f"Raw materials come in at the beginning, get cleaned and shaped in the middle, and exit as a finished product. "
             f"If something looks off, a supervisor tunes the machines so the next product comes out even better."
         )
-        viz = f'graph LR;\n  Input["Raw Input"] --> Process["{canonical_topic}"] --> Result["Clean Result"];'
+        viz = f'graph LR;\n  Input["Raw Input"] --> Process["{t}"] --> Result["Clean Result"];'
 
     return {
-        "canonical_topic": canonical_topic,
+        "canonical_topic": t,
         "simple_explanation": exp,
-        "why_it_works": f"Simplifying {canonical_topic} captures the intuitive flow from raw input to verified result without unnecessary jargon.",
+        "why_it_works": f"Simplifying {t} captures the intuitive flow from raw input to verified result without unnecessary jargon.",
         "example": f"Building complex solutions from simple, verifiable stages.",
-        "common_mistake": f"Thinking {canonical_topic} is mysterious magic rather than small, predictable adjustments.",
-        "mini_quiz": f"In simple terms, what is the main goal of {canonical_topic}?",
-        "reflection_prompt": f"How would you explain the core idea of {canonical_topic} to a 10-year-old?",
+        "common_mistake": f"Thinking {t} is mysterious magic rather than small, predictable adjustments.",
+        "mini_quiz": f"In simple terms, what is the main goal of {t}?",
+        "reflection_prompt": f"How would you explain the core idea of {t} to a 10-year-old?",
         "coach_recommendation": f"Keep the simple mental model in mind before diving into mathematical formulas.",
-        "next_learning_step": get_prerequisite_next_step(canonical_topic),
+        "next_learning_step": get_prerequisite_next_step(t),
         "visual_intuition": viz
     }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HIGH-FIDELITY STEP-BY-STEP KNOWLEDGE REPOSITORY (450 - 600 WORDS)
+# UNIVERSAL ANALOGY LESSON SYNTHESIZER (120 - 180 WORDS)
 # ─────────────────────────────────────────────────────────────────────────────
-def synthesize_step_by_step_lesson(canonical_topic: str) -> Dict[str, str]:
+
+def synthesize_analogy_lesson(canonical_topic: str) -> Dict[str, str]:
     """
-    Synthesizes a 5-step structured lesson with mini-examples and checkpoints (450-600 words).
+    Synthesizes a pure real-world analogy lesson (120-180 words) with explicit mapping and matching diagram.
     """
     topic_lower = canonical_topic.lower()
+    t = canonical_topic.strip()
+
     if any(k in topic_lower for k in ["cnn", "convolutional", "computer vision"]):
         exp = (
-            f"### Step 1 — Input Matrix Ingestion\n"
-            f"A CNN receives a raw image represented as a 3D numerical matrix of shape Height $\\times$ Width $\\times$ Channels (RGB values from 0 to 255).\n\n"
-            f"*Mini-Example:* A $28 \\times 28$ grayscale handwritten digit is ingested as a matrix of 784 pixel intensity values normalized between 0.0 and 1.0.\n\n"
-            f"> 🎯 **Step 1 Checkpoint:** Why do we normalize pixel intensities from [0, 255] to [0.0, 1.0] before feeding them into the network?\n\n"
-            f"### Step 2 — Convolutional Filtering & Feature Extraction\n"
-            f"Small learnable filters (e.g. $3 \\times 3$) slide across the image matrix, computing dot-products to generate 2D Feature Maps that highlight spatial patterns like lines, curves, and textures.\n\n"
-            f"*Mini-Example:* A vertical edge filter responds strongly when sliding over the sharp boundary between a dark pupil and a bright iris.\n\n"
-            f"> 🎯 **Step 2 Checkpoint:** What is the advantage of sliding small $3 \\times 3$ filters across an image instead of connecting each pixel directly to a hidden neuron?\n\n"
-            "### Step 3 — Non-Linear Rectification (ReLU)\n"
-            "Each value in the feature map passes through $\\text{ReLU}(z) = \\max(0, z)$. Negative activations are clamped to zero, creating sparse activations and enabling non-linear decision boundaries.\n\n"
-            "*Mini-Example:* An activation value of $-0.85$ becomes $0.0$, while $+2.40$ passes through unchanged.\n\n"
-            "> 🎯 **Step 3 Checkpoint:** Why would deep CNN layers fail to learn curved object boundaries if we removed the non-linear ReLU activation?\n\n"
-            "### Step 4 — Spatial Max Pooling\n"
-            "Max pooling slides a small window (e.g. $2 \\times 2$ with stride 2) over the feature map, keeping only the maximum value. This reduces spatial dimensions by 75% while maintaining translation invariance.\n\n"
-            "*Mini-Example:* A $2 \\times 2$ block containing $[1.2, 0.4, 3.8, 2.1]$ is condensed to the single dominant value $3.8$.\n\n"
-            "> 🎯 **Step 4 Checkpoint:** How does max pooling help a CNN recognize an object even if it is shifted or slightly rotated in the photograph?\n\n"
-            "### Step 5 — Dense Classification & Softmax Output\n"
-            "The pooled feature maps are flattened into a 1D vector and fed into fully connected dense layers. The final Softmax layer converts raw logits into normalized class probabilities summing to 1.0.\n\n"
-            "*Mini-Example:* Output logits $[2.1, 0.3, 8.4]$ are converted by Softmax into $[0.2\\%, 0.1\\%, 99.7\\%]$ probability for class 'Dog'.\n\n"
-            "> 🎯 **Step 5 Checkpoint (Feynman Challenge):** In your own words, trace how raw pixels transform from primitive lines in Step 2 to a final class decision in Step 5."
+            "Think of a **Convolutional Neural Network (CNN)** like a team of detectives examining a mystery photograph.\n\n"
+            "• **Inspectors with Magnifying Glasses (Convolutional Filters):** Detectives slide small magnifying glasses across the photo patch by patch, hunting for basic local clues—a sharp edge, a color corner, or a curve.\n"
+            "• **Clue Map Notepads (Feature Maps & ReLU):** Every time an inspector spots a clue, they highlight it on a summary notepad and ignore blank background space.\n"
+            "• **Summary Index Cards (Pooling Layers):** A coordinator condenses large notepads into essential bullet points, keeping only the strongest clues so the team isn't overwhelmed.\n"
+            "• **Lead Detective Conference (Fully Connected Layers):** The chief detective reviews all collected clue cards together and declares the final verdict: *\"This is a bicycle!\"*"
         )
-        viz = 'graph TD;\n  S1["Step 1: Input Matrix"] --> S2["Step 2: Convolution Filters"];\n  S2 --> S3["Step 3: ReLU Activation"];\n  S3 --> S4["Step 4: Max Pooling"];\n  S4 --> S5["Step 5: Dense Softmax"];'
+        viz = 'graph LR;\n  Photo["Photograph"] --> Inspectors["Filter Inspectors"] --> Clues["Pattern Clues"] --> Summary["Summary Notes"] --> Chief["Lead Detective"] --> Verdict["Final Identity"];'
+
+    elif any(k in topic_lower for k in ["neural", "perceptron", "deep learning"]):
+        exp = (
+            "Think of an **Artificial Neural Network** like a multi-station gourmet restaurant kitchen perfecting a signature recipe.\n\n"
+            "• **Prep Station (Input Layer):** Raw ingredients arrive—chopped, measured, and organized like raw input features.\n"
+            "• **Line Cook Stations (Hidden Layers & Weights):** Line cooks combine ingredients, adjusting spice and heat dials to balance recipe flavors.\n"
+            "• **Head Chef Taste Test (Activation & Output):** The head chef tastes the dish against strict restaurant standards and serves it to the guest.\n"
+            "• **Customer Review & Recipe Tweak (Loss & Backpropagation):** If a customer sends a dish back because it was too salty, the head chef traces the error backwards, instructing the line cook to reduce the salt ratio on the next order."
+        )
+        viz = 'graph LR;\n  Ingredients["Raw Ingredients"] --> LineCooks["Line Cooks Adjust Spices"] --> Chef["Head Chef Taste Test"] --> Feedback["Customer Feedback"] --> Refine["Recipe Refined"];'
+
+    elif any(k in topic_lower for k in ["binary search"]):
+        exp = (
+            "Think of **Binary Search** like playing a high-low number guessing game for a secret number between 1 and 100.\n\n"
+            "• **First Guess (Midpoint):** You don't guess 1, 2, 3 in order. You guess **50** right in the middle.\n"
+            "• **The Clue (Comparison):** Your friend says *\"Higher!\"*\n"
+            "• **Discarding the Half (Search Space Elimination):** In one second, you permanently throw away numbers 1 through 50. You now only have 51–100 to search.\n"
+            "• **Next Guess (Repeat Halving):** You guess 75, then 88, pinpointing the exact secret number in at most 7 total guesses!"
+        )
+        viz = 'graph LR;\n  Guess50["Guess Midpoint 50"] --> Higher["Friend Says Higher"] --> Discard["Discard 1 to 50"] --> Guess75["Guess 75"] --> Target["Secret Found"];'
+
+    elif any(k in topic_lower for k in ["derivative", "calculus"]):
+        exp = (
+            "Think of a **Derivative** like zooming in on a roller coaster track with a high-powered microscope.\n\n"
+            "• **The Big Curve (The Function $f(x)$):** From far away, the coaster track climbs, dips, and curves wildly across the amusement park.\n"
+            "• **Zooming In (Taking the Limit $\\Delta x \\to 0$):** If you zoom in extremely close to the single point where your cart sits right now, the curved metal rail looks like a perfectly straight ruler.\n"
+            "• **The Angle of the Ruler (The Derivative $f'(x)$):** The tilt of that straight ruler is the derivative—it tells you the exact steepness of your motion at that precise microsecond."
+        )
+        viz = 'graph LR;\n  CoasterTrack["Curved Track f(x)"] --> ZoomIn["Microscopic Zoom Δx→0"] --> TangentRuler["Straight Ruler Line"] --> Steepness["Instantaneous Slope f\'(x)"];'
+
+    elif any(k in topic_lower for k in ["photosynthesis"]):
+        exp = (
+            "Think of **Photosynthesis** like an ultra-efficient automated battery factory.\n\n"
+            "• **Solar Panels (Chlorophyll):** Photons from sunlight strike the roof panels, charging up high-energy battery packs (ATP and NADPH).\n"
+            "• **Assembly Line (Calvin Cycle):** The factory takes carbon dioxide raw materials from the ambient air and uses the stored battery power to assemble durable, shelf-stable energy fuel bricks (glucose sugar).\n"
+            "• **Clean Exhaust (Oxygen):** The factory releases clean oxygen byproduct back into the atmosphere."
+        )
+        viz = 'graph LR;\n  Sunlight["Sunlight Photons"] --> SolarPanels["Chlorophyll Batteries (ATP)"] --> AssemblyLine["Calvin Sugar Synthesis"] --> StoredFuel["Glucose Fuel Blocks"];'
+
     else:
         exp = (
-            f"### Step 1 — Input Ingestion & State Representation\n"
-            f"At the start, {canonical_topic} ingests raw input data and structures it into a well-defined numerical state space where every feature represents a measurable attribute.\n\n"
-            f"*Mini-Example:* Raw measurements are transformed into a normalized vector $X = [x_1, x_2, \\dots, x_n]$.\n\n"
-            f"> 🎯 **Step 1 Checkpoint:** What would happen if input state features were unnormalized or missing?\n\n"
-            f"### Step 2 — Parameterized Linear Transformation\n"
-            f"Incoming signals are multiplied by adjustable weight parameters and combined with a bias term ($z = \\mathbf{{w}}^T \\mathbf{{x}} + b$) to amplify critical patterns.\n\n"
-            f"*Mini-Example:* High weights amplify correlated signals while low weights suppress irrelevant background noise.\n\n"
-            f"> 🎯 **Step 2 Checkpoint:** Why is the scalar bias term necessary alongside the multiplying weights?\n\n"
-            f"### Step 3 — Non-Linear Activation & Feature Synthesis\n"
-            f"The combined signal passes through a non-linear activation function, granting the network the capacity to learn non-linear patterns across multi-layer stacks.\n\n"
-            f"*Mini-Example:* ReLU clamps negative values to zero while passing positive signal strengths through.\n\n"
-            f"> 🎯 **Step 3 Checkpoint:** What happens to deep network capacity if all layer transformations are purely linear?\n\n"
-            f"### Step 4 — Prediction & Loss Evaluation\n"
-            f"The system produces a prediction $\\hat{{y}}$ and compares it against ground truth $y$ using a Loss Function to quantify error magnitude.\n\n"
-            f"*Mini-Example:* Mean Squared Error computes the squared difference between the predicted value and the target label.\n\n"
-            f"> 🎯 **Step 4 Checkpoint:** Why do we square the prediction error in regression loss functions?\n\n"
-            f"### Step 5 — Backpropagation & Parameter Update\n"
-            f"Using the calculus chain rule, the algorithm computes partial derivatives ($\\frac{{\\partial L}}{{\\partial w}}$) and updates parameters via gradient descent ($w \\leftarrow w - \\eta \\frac{{\\partial L}}{{\\partial w}}$).\n\n"
-            f"*Mini-Example:* Parameters responsible for large errors receive proportional corrective adjustments.\n\n"
-            f"> 🎯 **Step 5 Checkpoint (Feynman Challenge):** In your own words, why must error propagation flow in the reverse direction of the forward pass?"
+            f"Think of **{t}** like a specialized airport luggage sorting terminal.\n\n"
+            f"• **Check-In Counter (Input Intake):** Items arrive with labels indicating their destination and priorities.\n"
+            f"• **Automated Conveyor Scanners (Intermediate Processing):** High-speed optical scanners read labels, routing items through specialized sorter gates.\n"
+            f"• **Quality Inspection (Decision Thresholds):** Verification sensors confirm routing accuracy before final distribution.\n"
+            f"• **System Re-routing (Feedback Adjustments):** If an item is misdirected, the routing computer recalibrates its switch timers for all subsequent items."
         )
-        viz = f'graph TD;\n  S1["Step 1: Input Ingestion"] --> S2["Step 2: Linear Weights"];\n  S2 --> S3["Step 3: Activation"];\n  S3 --> S4["Step 4: Loss Evaluation"];\n  S4 --> S5["Step 5: Backpropagation"];'
+        viz = f'graph LR;\n  Arrival["Items Arrive"] --> Scanners["Optical Scanners"] --> Gates["Sorter Gates"] --> Flight["Verified Delivery"];'
 
     return {
-        "canonical_topic": canonical_topic,
+        "canonical_topic": t,
         "simple_explanation": exp,
-        "why_it_works": f"Breaking {canonical_topic} into 5 sequential steps isolates cognitive load and reinforces each intermediate state transition.",
-        "example": f"Executing progressive state transitions from raw input ingestion to parameter optimization.",
-        "common_mistake": f"Skipping intermediate validation checkpoints when analyzing the step sequence of {canonical_topic}.",
-        "mini_quiz": f"Why does Step 3 require a non-linear activation function in {canonical_topic}?",
-        "reflection_prompt": f"Can you summarize how all 5 steps of {canonical_topic} connect together into a unified learning cycle?",
-        "coach_recommendation": f"Focus on how error signals calculated in Step 5 directly adjust the parameter weights introduced in Step 2.",
-        "next_learning_step": get_prerequisite_next_step(canonical_topic),
+        "why_it_works": f"The analogy provides a physical mental model for how {t} ingests, processes, and optimizes its operational flow.",
+        "example": f"Real-world workflows intuitively mapping to the internal mechanics of {t}.",
+        "common_mistake": f"Focusing solely on external appearances rather than how feedback flows backward to adjust internal parameters.",
+        "mini_quiz": f"In the analogy, what corresponds to the primary processing step of {t}?",
+        "reflection_prompt": f"Can you map the components of {t} to another familiar real-world system?",
+        "coach_recommendation": f"Anchor your mental model on how real-world feedback parallels the governing principles of {t}.",
+        "next_learning_step": get_prerequisite_next_step(t),
         "visual_intuition": viz
     }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CANONICAL RESPONSE VALIDATOR & STATE ENGINE
+# UNIVERSAL STEP-BY-STEP LESSON SYNTHESIZER (450 - 600 WORDS)
 # ─────────────────────────────────────────────────────────────────────────────
+
+def synthesize_step_by_step_lesson(canonical_topic: str) -> Dict[str, str]:
+    """
+    Synthesizes a 5-step structured lesson with mini-examples (450-600 words).
+    """
+    topic_lower = canonical_topic.lower()
+    t = canonical_topic.strip()
+
+    if any(k in topic_lower for k in ["cnn", "convolutional", "computer vision"]):
+        exp = (
+            "### Step 1 — Input Matrix Ingestion & Image Normalization\n"
+            "A Convolutional Neural Network ingests raw visual input represented as a 3D tensor of shape $\\text{Height} \\times \\text{Width} \\times \\text{Channels}$. "
+            "For standard color images, three color channels (Red, Green, Blue) contain pixel values ranging from 0 to 255. "
+            "These raw integer values are normalized into floating-point numbers between $0.0$ and $1.0$ or standardized with zero mean to accelerate training stability.\n\n"
+            "*Mini-Example:* A $28 \\times 28$ grayscale handwritten digit is ingested as a single-channel matrix of 784 normalized pixel intensity values.\n\n"
+            "### Step 2 — Convolutional Filtering & Local Feature Extraction\n"
+            "Small learnable weight matrices called filters or kernels (typically $3 \\times 3$ or $5 \\times 5$) slide systematically across the image with a defined stride and padding. "
+            "At every spatial position, the filter computes element-wise dot products with the underlying image patch, summing them into a single scalar in a 2D Feature Map. "
+            "Each filter learns to detect specific visual primitives such as horizontal edges, diagonal textures, and color boundaries.\n\n"
+            "*Mini-Example:* A vertical Sobel edge filter computes high positive activation when passing over the high-contrast boundary between an object and its background.\n\n"
+            "### Step 3 — Non-Linear Rectified Linear Activation (ReLU)\n"
+            "To model complex non-linear patterns, the network applies an activation function $\\text{ReLU}(z) = \\max(0, z)$ element-wise to every feature map. "
+            "Negative activation values are clamped to zero while positive values pass through unchanged. "
+            "This sparse activation prevents mathematical linearity and enables deep networks to learn non-linear visual relationships.\n\n"
+            "*Mini-Example:* Feature response values $[-2.4, 0.0, 5.1]$ become $[0.0, 0.0, 5.1]$, emphasizing active visual features and discarding negative responses.\n\n"
+            "### Step 4 — Spatial Max Pooling & Dimensional Downsampling\n"
+            "Max Pooling partitions the activated feature maps into non-overlapping spatial windows (typically $2 \\times 2$ with stride 2) and retains only the maximum activation value in each window. "
+            "This downsampling reduces spatial dimensions by 75%, drastically lowering computational parameters while providing translation invariance against minor shifts.\n\n"
+            "*Mini-Example:* A $2 \\times 2$ patch with activations $[1.2, 3.4; 0.5, 8.1]$ condenses down to a single maximum scalar $8.1$.\n\n"
+            "### Step 5 — Dense Classification & Softmax Probability Output\n"
+            "The final pooled feature maps are flattened into a 1D vector and passed through fully connected dense layers. "
+            "The final layer applies the Softmax function $\\sigma(\\mathbf{z})_i = \\frac{e^{z_i}}{\\sum_j e^{z_j}}$ to convert raw logit scores into normalized probabilities across all target classes.\n\n"
+            "*Mini-Example:* The network computes logits $[0.2, 5.8, 1.1]$, outputting a $98.2\\%$ probability confidence score for the target class."
+        )
+        viz = 'graph TD;\n  S1["Step 1: Input Matrix"] --> S2["Step 2: Convolution Filters"];\n  S2 --> S3["Step 3: ReLU Activation"];\n  S3 --> S4["Step 4: Max Pooling"];\n  S4 --> S5["Step 5: Dense Softmax"];'
+
+    elif any(k in topic_lower for k in ["neural", "perceptron", "deep learning"]):
+        exp = (
+            "### Step 1 — Input Feature Ingestion & Linear Combination\n"
+            "Input features $\\mathbf{x} = [x_1, x_2, \\dots, x_n]$ enter the artificial neuron and are multiplied by adjustable weight parameters $\\mathbf{w} = [w_1, w_2, \\dots, w_n]$. "
+            "A bias term $b$ is added to shift the decision boundary independently of the inputs, computing the pre-activation sum $z = \\mathbf{w}^T \\mathbf{x} + b$.\n\n"
+            "*Mini-Example:* For inputs $x_1=2, x_2=3$ with weights $w_1=0.5, w_2=1.0$ and bias $b=0.5$, the pre-activation sum is $z = (2 \\times 0.5) + (3 \\times 1.0) + 0.5 = 4.5$.\n\n"
+            "### Step 2 — Non-Linear Threshold Activation\n"
+            "The pre-activation sum $z$ passes through an activation function $f(z)$ (such as ReLU, Sigmoid, or GELU) to introduce non-linear expressiveness. "
+            "Without non-linear activations, multi-layer networks collapse mathematically into simple single-layer linear regression models.\n\n"
+            "*Mini-Example:* Applying $\\text{ReLU}(4.5) = 4.5$, while a negative pre-activation $\\text{ReLU}(-1.2) = 0.0$ disables the neuron's firing.\n\n"
+            "### Step 3 — Multi-Layer Forward Propagation\n"
+            "Activated outputs from layer $l$ serve as input vectors to layer $l+1$. "
+            "The network propagates activations sequentially through hidden layers, composing simple low-level features into complex, abstract hierarchical representations.\n\n"
+            "*Mini-Example:* Early layers detect raw edges, intermediate layers combine edges into geometric contours, and output layers recognize composite objects.\n\n"
+            "### Step 4 — Quantitative Loss Calculation\n"
+            "The final layer outputs prediction $\\hat{y}$, which is compared against the true target label $y$ using an objective loss function $L(\\hat{y}, y)$. "
+            "This computes the exact numerical penalty quantifying the prediction error across the dataset.\n\n"
+            "*Mini-Example:* For a target $y=1.0$ and prediction $\\hat{y}=0.7$, the mean squared error loss is $(1.0 - 0.7)^2 = 0.09$.\n\n"
+            "### Step 5 — Backpropagation & Gradient Optimization\n"
+            "Applying the calculus chain rule, the algorithm computes partial derivatives $\\frac{\\partial L}{\\partial w}$ backwards from the output layer to the inputs. "
+            "An optimizer like Adam or SGD updates each weight: $w \\leftarrow w - \\eta \\frac{\\partial L}{\\partial w}$, reducing error across successive iterations.\n\n"
+            "*Mini-Example:* With gradient $\\frac{\\partial L}{\\partial w} = 0.4$ and learning rate $\\eta=0.1$, the weight updates by subtracting $0.04$."
+        )
+        viz = 'graph TD;\n  S1["Step 1: Linear Transformation (wx+b)"] --> S2["Step 2: Non-Linear Activation"];\n  S2 --> S3["Step 3: Forward Propagation"];\n  S3 --> S4["Step 4: Loss Calculation"];\n  S4 --> S5["Step 5: Backprop & Weight Update"];'
+
+    elif any(k in topic_lower for k in ["binary search"]):
+        exp = (
+            "### Step 1 — Verify the Sorted Invariant & Establish Pointers\n"
+            "Binary Search requires the target array to be strictly sorted in ascending order. "
+            "We initialize two boundary pointer variables: `low = 0` (pointing to the first index) and `high = n - 1` (pointing to the last index of the search space).\n\n"
+            "*Mini-Example:* In array $[2, 5, 8, 12, 16, 23, 38, 56]$, initialize `low = 0` (element $2$) and `high = 7` (element $56$).\n\n"
+            "### Step 2 — Compute the Midpoint Index\n"
+            "Calculate the middle index using the overflow-safe formula: $\\text{mid} = \\text{low} + \\lfloor(\\text{high} - \\text{low})/2\\rfloor$. "
+            "This divides the active candidate search space into two equal halves in $O(1)$ time.\n\n"
+            "*Mini-Example:* With `low=0` and `high=7`, compute $\\text{mid} = 0 + \\lfloor(7-0)/2\\rfloor = 3$, accessing `arr[3] = 12`.\n\n"
+            "### Step 3 — Compare Midpoint Value with Target\n"
+            "Compare the midpoint value `arr[mid]` directly against the target value $T$. "
+            "If `arr[mid] == T`, the target has been successfully identified and the search terminates immediately returning `mid`.\n\n"
+            "*Mini-Example:* If searching for $T = 23$, compare candidate value `12` with target `23` ($12 < 23$).\n\n"
+            "### Step 4 — Eliminate Half the Search Space\n"
+            "Because the array is sorted, if `target > arr[mid]`, the target cannot possibly exist in the left half. "
+            "We discard the left half by setting `low = mid + 1`. Conversely, if `target < arr[mid]`, we discard the right half by setting `high = mid - 1`.\n\n"
+            "*Mini-Example:* Set `low = 3 + 1 = 4`, instantly discarding the first half of the array $[2, 5, 8, 12]$ in a single step.\n\n"
+            "### Step 5 — Iterative Halving & Termination\n"
+            "Repeat Steps 2 through 4 until the target element is located or the search space becomes exhausted when `low > high`. "
+            "This logarithmic halving guarantees finding any element in an $N$-element array in at most $\\lceil\\log_2(N)\\rceil$ comparisons.\n\n"
+            "*Mini-Example:* In the next iteration with `low=4` and `high=7`, $\\text{mid}=5$ accesses `arr[5]=23`, achieving a match in 2 steps."
+        )
+        viz = 'graph TD;\n  S1["Step 1: Establish Low & High Pointers"] --> S2["Step 2: Compute Midpoint Index"];\n  S2 --> S3["Step 3: Compare Mid with Target"];\n  S3 --> S4["Step 4: Discard Half the Array"];\n  S4 --> S5["Step 5: Return Found Index"];'
+
+    else:
+        exp = (
+            f"### Step 1 — Foundational Definition & Problem Formulation\n"
+            f"We begin by establishing the exact scope, fundamental principles, and operational objectives of **{t}**. "
+            f"Understanding the baseline prerequisites and core invariants ensures that all subsequent operations rest on verified assumptions.\n\n"
+            f"*Mini-Example:* Identifying the baseline state and defining initial operational boundaries before applying {t}.\n\n"
+            f"### Step 2 — Input Structuring & Initial Boundary Conditions\n"
+            f"Input parameters and operational variables are validated, normalized, and mapped into structured representations. "
+            f"This preparation eliminates malformed inputs, calibrates boundary conditions, and readies data channels for execution.\n\n"
+            f"*Mini-Example:* Calibrating initial values and setting verification thresholds for {t}.\n\n"
+            f"### Step 3 — Core Transformation Mechanics\n"
+            f"Executing the primary transformations, mathematical equations, or structural transitions governing {t}. "
+            f"This is where the fundamental mechanics operate, converting intermediate states through deterministic rules toward the target outcome.\n\n"
+            f"*Mini-Example:* Applying the governing rules of {t} and observing progressive intermediate state changes.\n\n"
+            f"### Step 4 — Quality Verification & Invariant Checking\n"
+            f"Evaluating intermediate outputs against strict verification criteria, boundary conditions, and conservation laws. "
+            f"This ensures that edge cases are handled gracefully and computational invariants remain preserved without error drift.\n\n"
+            f"*Mini-Example:* Validating convergence metrics and confirming error bounds for {t}.\n\n"
+            f"### Step 5 — Final Synthesis & Practical Execution\n"
+            f"Consolidating verified intermediate states into a conclusive result or production-ready implementation. "
+            f"The final output encapsulates the complete lifecycle of {t}, ready for downstream application or further analysis.\n\n"
+            f"*Mini-Example:* Deploying the verified solution of {t} to achieve reliable, reproducible outcomes."
+        )
+        viz = f'graph TD;\n  S1["Step 1: Foundations of {t}"] --> S2["Step 2: Input Structuring"];\n  S2 --> S3["Step 3: Core Transformation"];\n  S3 --> S4["Step 4: Verification"];\n  S4 --> S5["Step 5: Practical Mastery"];'
+
+    return {
+        "canonical_topic": t,
+        "simple_explanation": exp,
+        "why_it_works": f"The step-by-step progression decomposes {t} into verifiable stages, establishing clear mastery at each operational layer.",
+        "example": f"Following a structured sequential breakdown from initial setup to verified execution of {t}.",
+        "common_mistake": f"Attempting to skip foundational boundary checks before executing core transformation steps.",
+        "mini_quiz": f"In Step 2 of {t}, what is the primary objective of input structuring?",
+        "reflection_prompt": f"How would you explain the progression from Step 1 to Step 5 of {t} to a peer?",
+        "coach_recommendation": f"Focus on understanding the transition between each sequential step before proceeding to advanced edge cases.",
+        "next_learning_step": get_prerequisite_next_step(t),
+        "visual_intuition": viz
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RESPONSE VALIDATOR & QUALITY ENFORCEMENT ENGINE
+# ─────────────────────────────────────────────────────────────────────────────
+
 class ResponseValidator:
     @staticmethod
-    def validate_and_repair(data: Dict[str, Any], default_mastery: int = 0, fallback_topic: Optional[str] = None) -> TutorDocument:
+    def validate_and_repair(
+        raw_data: Dict[str, Any],
+        default_mastery: int = 0,
+        fallback_topic: Optional[str] = None,
+        variant: Optional[PresentationVariant] = None
+    ) -> TutorDocument:
         """
-        Validates contract response dictionary and enforces full-depth standard lessons,
-        mode-specific diagrams, and clean canonical topics.
+        Validates contract fields, cleans prompt echoes, enforces word-count standards,
+        binds adaptive Mermaid visuals, and returns a verified TutorDocument.
         """
-        repaired = dict(data)
-        repaired.setdefault("cognitive_trace", "Active recall model evaluation completed.")
-        
-        explanation = repaired.get("simple_explanation", "").strip()
-        why = repaired.get("why_it_works", "").strip()
-        example = repaired.get("example", "").strip()
-        cognitive_trace = repaired.get("cognitive_trace", "")
-        cognitive_trace_lower = cognitive_trace.lower()
+        repaired = dict(raw_data) if raw_data else {}
+        canonical_topic = extract_canonical_topic(
+            repaired.get("canonical_topic") or fallback_topic or "Core Concept",
+            fallback_topic=fallback_topic
+        )
+        repaired["canonical_topic"] = canonical_topic
 
-        # Determine explicit pedagogical mode — STRICTLY from explicit lesson_mode field
-        explicit_mode = str(repaired.get("lesson_mode", "")).upper().strip()
-        if explicit_mode in ("STEP_BY_STEP", "SIMPLIFY", "ANALOGY", "STANDARD"):
-            mode = LessonMode(explicit_mode)
-        else:
+        # Validate LessonMode
+        mode_str = str(repaired.get("lesson_mode", "STANDARD")).upper()
+        try:
+            mode = LessonMode(mode_str)
+        except ValueError:
             mode = LessonMode.STANDARD
         repaired["lesson_mode"] = mode
 
-        # Extract clean canonical topic from context with fallback inheritance
-        raw_topic = repaired.get("canonical_topic") or fallback_topic or explanation[:60]
-        canonical_topic = extract_canonical_topic(raw_topic, fallback_topic=fallback_topic)
-        repaired["canonical_topic"] = canonical_topic
+        # Determine presentation variant
+        chosen_variant = variant or PresentationVariant.ARCHITECTURE
 
-        # Clean prompt echo from explanation opening
-        explanation = clean_prompt_echo(explanation, is_explanation=True)
+        # Clean and validate explanation text
+        explanation = clean_prompt_echo(repaired.get("simple_explanation", ""), is_explanation=True)
+        why = clean_prompt_echo(repaired.get("why_it_works", ""))
+        example = clean_prompt_echo(repaired.get("example", ""))
 
-        # ─────────────────────────────────────────────────────────────────────
-        # MODE ENFORCEMENT & HIGH-FIDELITY SYNTHESIS
-        # ─────────────────────────────────────────────────────────────────────
-        if mode == LessonMode.ANALOGY:
-            # Enforce pure real-world analogy: must not have textbook step headers, must be analogy-driven
-            has_textbook_headers = "### 1." in explanation or "The Artificial Neuron" in explanation or "Architectural Foundations" in explanation
-            word_count = len(explanation.split())
-            if has_textbook_headers or word_count > 260 or word_count < 60 or "analogy" not in explanation.lower() and "like a" not in explanation.lower() and "think of" not in explanation.lower():
-                print(f"[VALIDATOR] Repairing ANALOGY response for '{canonical_topic}' with pure real-world analogy lesson...")
-                synth = synthesize_analogy_lesson(canonical_topic)
-                explanation = synth["simple_explanation"]
-                why = synth["why_it_works"]
-                example = synth["example"]
-                repaired["common_mistake"] = synth["common_mistake"]
-                repaired["mini_quiz"] = synth["mini_quiz"]
-                repaired["reflection_prompt"] = synth["reflection_prompt"]
-                repaired["coach_recommendation"] = synth["coach_recommendation"]
-                repaired["next_learning_step"] = synth["next_learning_step"]
-                repaired["visual_intuition"] = synth["visual_intuition"]
+        exp_words = len(explanation.split())
 
-        elif mode == LessonMode.SIMPLIFY:
-            # Enforce concise ELI5 explanation: 80 - 120 words
-            has_textbook_headers = "### 1." in explanation or "Architectural Foundations" in explanation
-            word_count = len(explanation.split())
-            if has_textbook_headers or word_count > 160 or word_count < 40:
-                print(f"[VALIDATOR] Repairing SIMPLIFY response for '{canonical_topic}' with concise ELI5 breakdown...")
+        # Quality Enforcement: Synthesize if empty or below pedagogical thresholds
+        if mode == LessonMode.SIMPLIFY:
+            if not explanation or exp_words < 40:
                 synth = synthesize_simplify_lesson(canonical_topic)
                 explanation = synth["simple_explanation"]
                 why = synth["why_it_works"]
                 example = synth["example"]
-                repaired["common_mistake"] = synth["common_mistake"]
-                repaired["mini_quiz"] = synth["mini_quiz"]
-                repaired["reflection_prompt"] = synth["reflection_prompt"]
-                repaired["coach_recommendation"] = synth["coach_recommendation"]
-                repaired["next_learning_step"] = synth["next_learning_step"]
-                repaired["visual_intuition"] = synth["visual_intuition"]
+                repaired.update({
+                    "common_mistake": synth["common_mistake"],
+                    "mini_quiz": synth["mini_quiz"],
+                    "reflection_prompt": synth["reflection_prompt"],
+                    "coach_recommendation": synth["coach_recommendation"],
+                    "next_learning_step": synth["next_learning_step"],
+                    "visual_intuition": synth["visual_intuition"]
+                })
+
+        elif mode == LessonMode.ANALOGY:
+            if not explanation or exp_words < 60:
+                synth = synthesize_analogy_lesson(canonical_topic)
+                explanation = synth["simple_explanation"]
+                why = synth["why_it_works"]
+                example = synth["example"]
+                repaired.update({
+                    "common_mistake": synth["common_mistake"],
+                    "mini_quiz": synth["mini_quiz"],
+                    "reflection_prompt": synth["reflection_prompt"],
+                    "coach_recommendation": synth["coach_recommendation"],
+                    "next_learning_step": synth["next_learning_step"],
+                    "visual_intuition": synth["visual_intuition"]
+                })
 
         elif mode == LessonMode.STEP_BY_STEP:
-            # Enforce 5 sequential steps with checkpoints
-            has_5_steps = "Step 1" in explanation and "Step 2" in explanation and "Step 3" in explanation and "Step 4" in explanation and "Step 5" in explanation
-            word_count = len(explanation.split())
-            if not has_5_steps or word_count < 280:
-                print(f"[VALIDATOR] Repairing STEP_BY_STEP response for '{canonical_topic}' with 5-stage progression...")
+            if not explanation or exp_words < 200:
                 synth = synthesize_step_by_step_lesson(canonical_topic)
                 explanation = synth["simple_explanation"]
                 why = synth["why_it_works"]
                 example = synth["example"]
-                repaired["common_mistake"] = synth["common_mistake"]
-                repaired["mini_quiz"] = synth["mini_quiz"]
-                repaired["reflection_prompt"] = synth["reflection_prompt"]
-                repaired["coach_recommendation"] = synth["coach_recommendation"]
-                repaired["next_learning_step"] = synth["next_learning_step"]
-                repaired["visual_intuition"] = synth["visual_intuition"]
+                repaired.update({
+                    "common_mistake": synth["common_mistake"],
+                    "mini_quiz": synth["mini_quiz"],
+                    "reflection_prompt": synth["reflection_prompt"],
+                    "coach_recommendation": synth["coach_recommendation"],
+                    "next_learning_step": synth["next_learning_step"],
+                    "visual_intuition": synth["visual_intuition"]
+                })
 
         else:
-            # STANDARD MODE (350 - 500 words)
-            word_count = len(explanation.split())
-            if word_count < 220:
-                print(f"[VALIDATOR] Standard lesson word count ({word_count} words) below threshold (<220). Enriching to full-depth master lesson...")
-                synth = synthesize_standard_lesson(canonical_topic, explanation, why, example)
+            # Standard Mode (~350 - 500 words)
+            total_words = exp_words + len(why.split()) + len(example.split())
+            if not explanation or total_words < 180:
+                synth = synthesize_standard_lesson(
+                    canonical_topic,
+                    partial_exp=explanation,
+                    partial_why=why,
+                    partial_example=example,
+                    variant=chosen_variant
+                )
                 explanation = synth["simple_explanation"]
                 why = synth["why_it_works"]
                 example = synth["example"]
-                repaired["common_mistake"] = synth["common_mistake"]
-                repaired["mini_quiz"] = synth["mini_quiz"]
-                repaired["reflection_prompt"] = synth["reflection_prompt"]
-                repaired["coach_recommendation"] = synth["coach_recommendation"]
-                repaired["next_learning_step"] = synth["next_learning_step"]
-                repaired["visual_intuition"] = synth["visual_intuition"]
+                repaired.update({
+                    "common_mistake": synth["common_mistake"],
+                    "mini_quiz": synth["mini_quiz"],
+                    "reflection_prompt": synth["reflection_prompt"],
+                    "coach_recommendation": synth["coach_recommendation"],
+                    "next_learning_step": synth["next_learning_step"],
+                    "visual_intuition": synth["visual_intuition"]
+                })
 
-        repaired["simple_explanation"] = explanation
+        repaired["simple_explanation"] = clean_prompt_echo(explanation, is_explanation=True)
         repaired["why_it_works"] = clean_prompt_echo(why)
         repaired["example"] = clean_prompt_echo(example)
         repaired.setdefault("common_mistake", f"Confusing foundational parameters of {canonical_topic} with output predictions.")
 
-        # Sanitize Active Recall and Quiz to always reference clean topic
-        mini_quiz = repaired.get("mini_quiz", "").strip()
-        if not mini_quiz or any(p in mini_quiz.lower() for p in ["teach me step by step", "explain this concept even simpler", "give a real world analogy"]):
+        # Clean background quiz and reflection fields
+        mini_quiz = clean_prompt_echo(repaired.get("mini_quiz", "").strip())
+        if not mini_quiz:
             mini_quiz = f"What is the primary mechanism that enables {canonical_topic} to operate accurately?"
-        repaired["mini_quiz"] = clean_prompt_echo(mini_quiz)
+        repaired["mini_quiz"] = mini_quiz
 
-        reflection = repaired.get("reflection_prompt", "").strip()
-        if not reflection or any(p in reflection.lower() for p in ["teach me step by step", "explain this concept even simpler", "give a real world analogy"]):
+        reflection = clean_prompt_echo(repaired.get("reflection_prompt", "").strip())
+        if not reflection:
             reflection = f"How would you explain the core mechanism of {canonical_topic} to a fellow engineer?"
-        repaired["reflection_prompt"] = clean_prompt_echo(reflection)
+        repaired["reflection_prompt"] = reflection
 
-        # Topic-Aware Coaching Tip
-        coach_tip = repaired.get("coach_recommendation", "").strip()
-        if not coach_tip or any(p in coach_tip.lower() for p in ["teach me step by step", "explain this concept even simpler", "give a real world analogy"]):
-            if "backprop" in canonical_topic.lower():
-                coach_tip = "Trace how error gradients propagate backward layer by layer to understand weight updates."
-            elif "neural" in canonical_topic.lower() or "perceptron" in canonical_topic.lower():
-                coach_tip = "Think about how each layer transforms raw input features into progressively higher-level representations."
-            elif "cnn" in canonical_topic.lower() or "vision" in canonical_topic.lower():
-                coach_tip = "Notice how convolutional filters detect local patterns that combine into global shapes."
-            elif "binary search" in canonical_topic.lower():
-                coach_tip = "Focus on why eliminating half the search space at every step yields logarithmic time."
-            else:
-                coach_tip = f"Focus on how {canonical_topic} structures data transformations and optimizes its decision boundaries."
+        coach_tip = clean_prompt_echo(repaired.get("coach_recommendation", "").strip())
+        if not coach_tip:
+            coach_tip = f"Focus on how {canonical_topic} structures data transformations and optimizes its decision boundaries."
         repaired["coach_recommendation"] = coach_tip
 
-        # Next learning step (prerequisite-aware)
-        next_step = repaired.get("next_learning_step", "").strip()
-        if not next_step or any(p in next_step.lower() for p in ["teach me step by step", "explain this concept even simpler", "give a real world analogy"]):
+        next_step = clean_prompt_echo(repaired.get("next_learning_step", "").strip())
+        if not next_step:
             next_step = get_prerequisite_next_step(canonical_topic)
-        else:
-            next_step = clean_prompt_echo(next_step)
         repaired["next_learning_step"] = next_step
 
-        # ─────────────────────────────────────────────────────────────────────
-        # MODE-SPECIFIC DIAGRAM RESOLUTION ENGINE
-        # ─────────────────────────────────────────────────────────────────────
+        # Adaptive Diagram Binding
         viz = repaired.get("visual_intuition", "").strip()
-        topic_and_text = f"{canonical_topic} {explanation} {why} {example}".lower()
-        topic_lower = canonical_topic.lower()
-
-        # Find matching domain diagram in registry
-        matched_viz = None
-        for entry in TOPIC_VISUALS_REGISTRY:
-            if any(re.search(r'\b' + re.escape(alias) + r'\b', topic_lower) for alias in entry["aliases"]):
-                matched_viz = entry["mermaid"]
-                break
-
-        if not matched_viz:
-            for entry in TOPIC_VISUALS_REGISTRY:
-                if any(re.search(r'\b' + re.escape(alias) + r'\b', topic_and_text) for alias in entry["aliases"]):
-                    matched_viz = entry["mermaid"]
-                    break
-
-        if mode == LessonMode.SIMPLIFY:
-            if any(k in topic_lower for k in ["cnn", "convolutional", "computer vision"]):
-                viz = 'graph LR;\n  Image["Input Image"] --> Simple["Simple Edges"] --> Complex["Complex Shapes"] --> Object["Object Decision"];'
-            elif any(k in topic_lower for k in ["neural", "perceptron", "deep learning", "mlp", "ann"]):
-                viz = 'graph LR;\n  Input["Input Data"] --> NN["Neural Network Layers"] --> Learn["Learn Patterns"] --> Pred["Prediction"];'
-            elif any(k in topic_lower for k in ["backprop", "gradient", "chain rule"]):
-                viz = 'graph LR;\n  Loss["Calculate Loss"] --> Grad["Compute Gradients"] --> Update["Update Weights"];'
-            elif any(k in topic_lower for k in ["transformer", "attention", "bert", "gpt"]):
-                viz = 'graph LR;\n  Token["Input Tokens"] --> Attn["Self-Attention"] --> Out["Contextual Output"];'
-            elif any(k in topic_lower for k in ["binary search", "search"]):
-                viz = 'graph LR;\n  Array["Sorted Array"] --> Mid["Check Midpoint"] --> Discard["Discard Half"] --> Target["Target Found"];'
-            elif any(k in topic_lower for k in ["sort", "merge sort", "quicksort"]):
-                viz = 'graph LR;\n  Unsorted["Unsorted Data"] --> Split["Divide"] --> Sorted["Sorted Output"];'
-            elif matched_viz:
-                viz = matched_viz
-            else:
-                viz = f'graph LR;\n  Input["{canonical_topic} Input"] --> Process["{canonical_topic} Core Logic"] --> Output["Result"];'
-
-        elif mode == LessonMode.ANALOGY:
-            text_lower = f"{canonical_topic} {explanation}".lower()
-            if any(k in text_lower for k in ["cnn", "convolutional", "computer vision", "detective", "inspector", "photo", "magnifying"]):
-                viz = 'graph LR;\n  Photo["Photograph"] --> Inspectors["Filter Inspectors"] --> Clues["Pattern Clues"] --> Summary["Summary Notes"] --> Chief["Lead Detective"] --> Verdict["Final Identity"];'
-            elif any(k in text_lower for k in ["neural", "perceptron", "kitchen", "chef", "cooking", "recipe"]):
-                viz = 'graph LR;\n  Ingredients["Raw Ingredients"] --> LineCooks["Line Cooks Adjust Spices"] --> Chef["Head Chef Taste Test"] --> Feedback["Customer Feedback"] --> Refine["Recipe Refined"];'
-            elif any(k in text_lower for k in ["transformer", "attention", "conference", "expert"]):
-                viz = 'graph LR;\n  Speakers["Conference Experts"] --> Matching["Query & Key Matching"] --> Notes["Shared Notes"] --> Consensus["Unified Understanding"];'
-            elif any(k in text_lower for k in ["binary search", "game", "guess", "higher"]):
-                viz = 'graph LR;\n  Guess50["Guess Midpoint 50"] --> Higher["Friend Says Higher"] --> Discard["Discard 1 to 50"] --> Guess75["Guess 75"] --> Target["Secret Found"];'
-            elif any(k in text_lower for k in ["airport", "luggage", "terminal"]):
-                viz = 'graph LR;\n  Arrival["Luggage Arrives"] --> Scanners["Barcode Scanners"] --> Gates["Sorter Gates"] --> Flight["Correct Flight"];'
-            else:
-                t = canonical_topic
-                viz = f'graph LR;\n  RealWorld["Familiar Concept"] --> Mapping["{t} Parallel"] --> Insight["{t} Understood"];'
-
-        elif mode == LessonMode.STEP_BY_STEP:
-            if any(k in topic_lower for k in ["cnn", "convolutional", "computer vision"]):
-                viz = 'graph TD;\n  S1["Step 1: Input Matrix"] --> S2["Step 2: Convolution Filters"];\n  S2 --> S3["Step 3: ReLU Activation"];\n  S3 --> S4["Step 4: Max Pooling"];\n  S4 --> S5["Step 5: Dense Softmax"];'
-            elif any(k in topic_lower for k in ["neural", "perceptron", "deep learning", "mlp"]):
-                viz = 'graph TD;\n  S1["Step 1: Understand Neurons & Weights"] --> S2["Step 2: Forward Pass Predictions"];\n  S2 --> S3["Step 3: Measure Loss Error"];\n  S3 --> S4["Step 4: Backpropagate Gradients"];\n  S4 --> S5["Step 5: Optimizer Weight Update"];'
-            elif any(k in topic_lower for k in ["backprop", "gradient", "chain rule"]):
-                viz = 'graph TD;\n  S1["Step 1: Forward Pass Output"] --> S2["Step 2: Output Layer Loss"];\n  S2 --> S3["Step 3: Chain Rule Gradients"];\n  S3 --> S4["Step 4: Accumulate Derivatives"];\n  S4 --> S5["Step 5: Optimizer Parameter Update"];'
-            elif any(k in topic_lower for k in ["transformer", "attention", "bert", "gpt"]):
-                viz = 'graph TD;\n  S1["Step 1: Tokenize & Embed"] --> S2["Step 2: Positional Encoding"];\n  S2 --> S3["Step 3: Compute Q, K, V"];\n  S3 --> S4["Step 4: Multi-Head Attention"];\n  S4 --> S5["Step 5: Feed-Forward & Norm"];'
-            elif any(k in topic_lower for k in ["binary search"]):
-                viz = 'graph TD;\n  S1["Step 1: Set Low & High Pointers"] --> S2["Step 2: Calculate Midpoint"];\n  S2 --> S3["Step 3: Compare Mid with Target"];\n  S3 --> S4["Step 4: Eliminate Half Array"];\n  S4 --> S5["Step 5: Return Found Index"];'
-            elif any(k in topic_lower for k in ["sort", "merge sort", "quicksort"]):
-                viz = 'graph TD;\n  S1["Step 1: Divide Array in Halves"] --> S2["Step 2: Recursively Sort Left"];\n  S2 --> S3["Step 3: Recursively Sort Right"];\n  S3 --> S4["Step 4: Merge Sorted Halves"];\n  S4 --> S5["Step 5: Return Sorted Array"];'
-            elif matched_viz:
-                viz = matched_viz
-            else:
-                t = canonical_topic
-                viz = f'graph TD;\n  S1["Step 1: {t} Foundations"] --> S2["Step 2: Core Mechanism"];\n  S2 --> S3["Step 3: Practical Example"];\n  S3 --> S4["Step 4: Edge Cases"];\n  S4 --> S5["Step 5: Master In Practice"];'
-
-        else:
-            # Standard Mode
-            if matched_viz:
-                viz = matched_viz
-            elif not viz or ("graph " not in viz and "flowchart " not in viz) or "Fallback" in viz or "Input Transformation" in viz:
-                viz = f'graph TD;\n  In["Input Data"] --> Process["{canonical_topic} Processing"];\n  Process --> Out["Verified Output"];'
-
+        if not viz or "graph " not in viz or "Fallback" in viz or "Input Transformation" in viz:
+            viz = generate_adaptive_diagram(canonical_topic, chosen_variant, mode.value, explanation)
         repaired["visual_intuition"] = viz
+
         repaired.setdefault("estimated_study_time", 4)
         repaired.setdefault("mastery_score", default_mastery)
         repaired.setdefault("sources", [])
         if "evaluation" in repaired and isinstance(repaired["evaluation"], dict):
             repaired["evaluation"] = repaired["evaluation"]
 
-        total_words = len(explanation.split()) + len(why.split()) + len(example.split())
-        print(f"[VALIDATOR] Response validated ({mode.value}) with {total_words} total instructional words.")
         return DocumentBuilder.create_document(repaired)
