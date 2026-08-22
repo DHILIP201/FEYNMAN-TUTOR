@@ -121,7 +121,7 @@ def extract_canonical_topic(text: str, fallback_topic: Optional[str] = None) -> 
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PREREQUISITE-AWARE NEXT LEARNING STEPS
+# PDF TOPIC EXTRACTION & PREREQUISITE-AWARE NEXT LEARNING STEPS
 # ─────────────────────────────────────────────────────────────────────────────
 TOPIC_NEXT_STEPS = {
     "cnn": "Padding, Stride, and Spatial Downsampling with Pooling",
@@ -144,7 +144,64 @@ TOPIC_NEXT_STEPS = {
     "supply and demand": "Elasticity and Market Equilibrium Shifts"
 }
 
-def get_prerequisite_next_step(canonical_topic: str) -> str:
+def extract_candidate_topics_from_pdf(pdf_text_or_chunks: Any) -> List[str]:
+    """Extracts prominent candidate topic phrases / headings from PDF context or chunks."""
+    if not pdf_text_or_chunks:
+        return []
+    
+    text = ""
+    if isinstance(pdf_text_or_chunks, list):
+        for c in pdf_text_or_chunks:
+            if isinstance(c, dict):
+                text += " " + c.get("text", c.get("content", ""))
+            elif isinstance(c, str):
+                text += " " + c
+    elif isinstance(pdf_text_or_chunks, str):
+        text = pdf_text_or_chunks
+
+    if not text.strip():
+        return []
+
+    candidates: List[str] = []
+    # Match markdown headings (### Title), bold concepts (**Title**), or Chapter/Section markers
+    headings = re.findall(r'(?:###|\*\*|Section\s*\d*:?|Chapter\s*\d*:?)\s*([A-Za-z0-9\s\-–]{3,40})(?:\*\*|\n|$)', text)
+    for h in headings:
+        h_clean = h.strip().strip("*:–-# ")
+        if len(h_clean) >= 3 and not h_clean.lower().startswith("step") and not h_clean.lower().startswith("checkpoint") and not h_clean.lower().startswith("mini-example"):
+            if h_clean not in candidates and not any(h_clean.lower() == existing.lower() for existing in candidates):
+                candidates.append(h_clean)
+    
+    # Discovery of domain-grounded keywords present in document text
+    keywords = [
+        "Convolutional Neural Networks", "Backpropagation", "Gradient Descent", "Loss Function",
+        "Activation Functions", "Max Pooling", "Dense Layers", "Softmax", "Learning Rate",
+        "Overfitting", "Regularization", "Batch Normalization", "Chain Rule", "Derivative",
+        "Integrals", "Matrix Multiplication", "Eigenvalues", "Newton's Second Law", "Thermodynamics",
+        "Photosynthesis", "Cellular Respiration", "Chemical Bonding", "Supply and Demand",
+        "Operating System Deadlock", "Binary Search", "Industrial Revolution"
+    ]
+    for kw in keywords:
+        if kw.lower() in text.lower():
+            if not any(kw.lower() == existing.lower() for existing in candidates):
+                candidates.append(kw)
+
+    return candidates
+
+
+def get_prerequisite_next_step(canonical_topic: str, pdf_context: Any = None) -> str:
+    """
+    Returns the next pedagogical concept.
+    Strictly prioritizes available topics from the uploaded PDF document when a PDF session is active.
+    """
+    if pdf_context:
+        available_topics = extract_candidate_topics_from_pdf(pdf_context)
+        topic_lower = canonical_topic.lower()
+        # Find the first available PDF topic that is not the current topic
+        for candidate in available_topics:
+            if candidate.lower() not in topic_lower and topic_lower not in candidate.lower():
+                return f"From your uploaded material, study {candidate} next."
+        return "Continue exploring the next section of your uploaded study material."
+
     topic_lower = canonical_topic.lower()
     for key, step in TOPIC_NEXT_STEPS.items():
         if key in topic_lower:
@@ -620,11 +677,12 @@ class ResponseValidator:
         raw_data: Dict[str, Any],
         default_mastery: int = 0,
         fallback_topic: Optional[str] = None,
-        variant: Optional[PresentationVariant] = None
+        variant: Optional[PresentationVariant] = None,
+        pdf_context: Optional[Any] = None
     ) -> TutorDocument:
         """
         Validates contract fields, cleans prompt echoes, enforces word-count standards,
-        binds adaptive Mermaid visuals, and returns a verified TutorDocument.
+        binds adaptive Mermaid visuals, enforces PDF grounding, and returns a verified TutorDocument.
         """
         repaired = dict(raw_data) if raw_data else {}
         canonical_topic = extract_canonical_topic(
@@ -651,111 +709,134 @@ class ResponseValidator:
 
         exp_words = len(explanation.split())
 
-        # Quality Enforcement: Synthesize if empty or below pedagogical thresholds
-        if mode == LessonMode.SIMPLIFY:
-            if not explanation or exp_words < 40:
-                synth = synthesize_simplify_lesson(canonical_topic)
-                explanation = synth["simple_explanation"]
-                why = synth["why_it_works"]
-                example = synth["example"]
-                repaired.update({
-                    "common_mistake": synth["common_mistake"],
-                    "mini_quiz": synth["mini_quiz"],
-                    "reflection_prompt": synth["reflection_prompt"],
-                    "coach_recommendation": synth["coach_recommendation"],
-                    "next_learning_step": synth["next_learning_step"],
-                    "visual_intuition": synth["visual_intuition"]
-                })
+        # Check if the explanation is an explicit notice of information not found in the uploaded PDF
+        is_unsupported_doc_query = bool(
+            "couldn't find enough information" in explanation.lower() or
+            "could not find enough information" in explanation.lower() or
+            "not available in your uploaded" in explanation.lower() or
+            "not found in your uploaded" in explanation.lower() or
+            "not covered in the uploaded" in explanation.lower() or
+            "outside the scope of your uploaded" in explanation.lower()
+        )
 
-        elif mode == LessonMode.ANALOGY:
-            if not explanation or exp_words < 60:
-                synth = synthesize_analogy_lesson(canonical_topic)
-                explanation = synth["simple_explanation"]
-                why = synth["why_it_works"]
-                example = synth["example"]
-                repaired.update({
-                    "common_mistake": synth["common_mistake"],
-                    "mini_quiz": synth["mini_quiz"],
-                    "reflection_prompt": synth["reflection_prompt"],
-                    "coach_recommendation": synth["coach_recommendation"],
-                    "next_learning_step": synth["next_learning_step"],
-                    "visual_intuition": synth["visual_intuition"]
-                })
+        active_pdf_ctx = pdf_context or repaired.get("sources")
 
-        elif mode == LessonMode.STEP_BY_STEP:
-            if not explanation or exp_words < 200:
-                synth = synthesize_step_by_step_lesson(canonical_topic)
-                explanation = synth["simple_explanation"]
-                why = synth["why_it_works"]
-                example = synth["example"]
-                repaired.update({
-                    "common_mistake": synth["common_mistake"],
-                    "mini_quiz": synth["mini_quiz"],
-                    "reflection_prompt": synth["reflection_prompt"],
-                    "coach_recommendation": synth["coach_recommendation"],
-                    "next_learning_step": synth["next_learning_step"],
-                    "visual_intuition": synth["visual_intuition"]
-                })
-
+        if is_unsupported_doc_query:
+            # Preserve explicit unsupported notice rather than synthesizing a generic response
+            repaired["simple_explanation"] = explanation
+            if not why:
+                repaired["why_it_works"] = "Feynman AI prioritizes your uploaded study material as the authoritative knowledge source for this session."
+            if not example:
+                repaired["example"] = "Explore the topics and chapters covered in your uploaded document or upload additional materials."
+            repaired["next_learning_step"] = get_prerequisite_next_step(canonical_topic, pdf_context=active_pdf_ctx)
+            repaired["visual_intuition"] = 'graph TD;\n  Doc["Uploaded Document"] --> Scope["Active Material Scope"];\n  Scope --> Next["Explore Document Topics"];'
         else:
-            # Standard Mode (~350 - 500 words)
-            total_words = exp_words + len(why.split()) + len(example.split())
-            if not explanation or total_words < 180:
-                synth = synthesize_standard_lesson(
-                    canonical_topic,
-                    partial_exp=explanation,
-                    partial_why=why,
-                    partial_example=example,
-                    variant=chosen_variant
-                )
-                explanation = synth["simple_explanation"]
-                why = synth["why_it_works"]
-                example = synth["example"]
-                repaired.update({
-                    "common_mistake": synth["common_mistake"],
-                    "mini_quiz": synth["mini_quiz"],
-                    "reflection_prompt": synth["reflection_prompt"],
-                    "coach_recommendation": synth["coach_recommendation"],
-                    "next_learning_step": synth["next_learning_step"],
-                    "visual_intuition": synth["visual_intuition"]
-                })
+            # Quality Enforcement: Synthesize if empty or below pedagogical thresholds
+            if mode == LessonMode.SIMPLIFY:
+                if not explanation or exp_words < 40:
+                    synth = synthesize_simplify_lesson(canonical_topic)
+                    explanation = synth["simple_explanation"]
+                    why = synth["why_it_works"]
+                    example = synth["example"]
+                    repaired.update({
+                        "common_mistake": synth["common_mistake"],
+                        "mini_quiz": synth["mini_quiz"],
+                        "reflection_prompt": synth["reflection_prompt"],
+                        "coach_recommendation": synth["coach_recommendation"],
+                        "next_learning_step": get_prerequisite_next_step(canonical_topic, pdf_context=active_pdf_ctx),
+                        "visual_intuition": synth["visual_intuition"]
+                    })
 
-        repaired["simple_explanation"] = clean_prompt_echo(explanation, is_explanation=True)
-        repaired["why_it_works"] = clean_prompt_echo(why)
-        repaired["example"] = clean_prompt_echo(example)
-        repaired.setdefault("common_mistake", f"Confusing foundational parameters of {canonical_topic} with output predictions.")
+            elif mode == LessonMode.ANALOGY:
+                if not explanation or exp_words < 60:
+                    synth = synthesize_analogy_lesson(canonical_topic)
+                    explanation = synth["simple_explanation"]
+                    why = synth["why_it_works"]
+                    example = synth["example"]
+                    repaired.update({
+                        "common_mistake": synth["common_mistake"],
+                        "mini_quiz": synth["mini_quiz"],
+                        "reflection_prompt": synth["reflection_prompt"],
+                        "coach_recommendation": synth["coach_recommendation"],
+                        "next_learning_step": get_prerequisite_next_step(canonical_topic, pdf_context=active_pdf_ctx),
+                        "visual_intuition": synth["visual_intuition"]
+                    })
 
-        # Clean background quiz and reflection fields
-        mini_quiz = clean_prompt_echo(repaired.get("mini_quiz", "").strip())
-        if not mini_quiz:
-            mini_quiz = f"What is the primary mechanism that enables {canonical_topic} to operate accurately?"
-        repaired["mini_quiz"] = mini_quiz
+            elif mode == LessonMode.STEP_BY_STEP:
+                if not explanation or exp_words < 200:
+                    synth = synthesize_step_by_step_lesson(canonical_topic)
+                    explanation = synth["simple_explanation"]
+                    why = synth["why_it_works"]
+                    example = synth["example"]
+                    repaired.update({
+                        "common_mistake": synth["common_mistake"],
+                        "mini_quiz": synth["mini_quiz"],
+                        "reflection_prompt": synth["reflection_prompt"],
+                        "coach_recommendation": synth["coach_recommendation"],
+                        "next_learning_step": get_prerequisite_next_step(canonical_topic, pdf_context=active_pdf_ctx),
+                        "visual_intuition": synth["visual_intuition"]
+                    })
 
-        reflection = clean_prompt_echo(repaired.get("reflection_prompt", "").strip())
-        if not reflection:
-            reflection = f"How would you explain the core mechanism of {canonical_topic} to a fellow engineer?"
-        repaired["reflection_prompt"] = reflection
+            else:
+                # Standard Mode (~350 - 500 words)
+                total_words = exp_words + len(why.split()) + len(example.split())
+                if not explanation or total_words < 180:
+                    synth = synthesize_standard_lesson(
+                        canonical_topic,
+                        partial_exp=explanation,
+                        partial_why=why,
+                        partial_example=example,
+                        variant=chosen_variant
+                    )
+                    explanation = synth["simple_explanation"]
+                    why = synth["why_it_works"]
+                    example = synth["example"]
+                    repaired.update({
+                        "common_mistake": synth["common_mistake"],
+                        "mini_quiz": synth["mini_quiz"],
+                        "reflection_prompt": synth["reflection_prompt"],
+                        "coach_recommendation": synth["coach_recommendation"],
+                        "next_learning_step": get_prerequisite_next_step(canonical_topic, pdf_context=active_pdf_ctx),
+                        "visual_intuition": synth["visual_intuition"]
+                    })
 
-        coach_tip = clean_prompt_echo(repaired.get("coach_recommendation", "").strip())
-        if not coach_tip:
-            coach_tip = f"Focus on how {canonical_topic} structures data transformations and optimizes its decision boundaries."
-        repaired["coach_recommendation"] = coach_tip
+            repaired["simple_explanation"] = clean_prompt_echo(explanation, is_explanation=True)
+            repaired["why_it_works"] = clean_prompt_echo(why)
+            repaired["example"] = clean_prompt_echo(example)
+            repaired.setdefault("common_mistake", f"Confusing foundational parameters of {canonical_topic} with output predictions.")
 
-        next_step = clean_prompt_echo(repaired.get("next_learning_step", "").strip())
-        if not next_step:
-            next_step = get_prerequisite_next_step(canonical_topic)
-        repaired["next_learning_step"] = next_step
+            # Clean background quiz and reflection fields
+            mini_quiz = clean_prompt_echo(repaired.get("mini_quiz", "").strip())
+            if not mini_quiz:
+                mini_quiz = f"What is the primary mechanism that enables {canonical_topic} to operate accurately?"
+            repaired["mini_quiz"] = mini_quiz
 
-        # Adaptive Diagram Binding
-        viz = repaired.get("visual_intuition", "").strip()
-        if not viz or "graph " not in viz or "Fallback" in viz or "Input Transformation" in viz:
-            viz = generate_adaptive_diagram(canonical_topic, chosen_variant, mode.value, explanation)
-        repaired["visual_intuition"] = viz
+            reflection = clean_prompt_echo(repaired.get("reflection_prompt", "").strip())
+            if not reflection:
+                reflection = f"How would you explain the core mechanism of {canonical_topic} to a fellow engineer?"
+            repaired["reflection_prompt"] = reflection
 
+            coach_tip = clean_prompt_echo(repaired.get("coach_recommendation", "").strip())
+            if not coach_tip:
+                coach_tip = f"Focus on how {canonical_topic} structures data transformations and optimizes its decision boundaries."
+            repaired["coach_recommendation"] = coach_tip
+
+            next_step = clean_prompt_echo(repaired.get("next_learning_step", "").strip())
+            if not next_step or (active_pdf_ctx and not next_step.startswith("From your uploaded material")):
+                next_step = get_prerequisite_next_step(canonical_topic, pdf_context=active_pdf_ctx)
+            repaired["next_learning_step"] = next_step
+
+            # Adaptive Diagram Binding
+            viz = repaired.get("visual_intuition", "").strip()
+            if not viz or "graph " not in viz or "Fallback" in viz or "Input Transformation" in viz:
+                viz = generate_adaptive_diagram(canonical_topic, chosen_variant, mode.value, explanation)
+            repaired["visual_intuition"] = viz
+
+        repaired.setdefault("cognitive_trace", f"{mode.value} lesson active for {canonical_topic}.")
         repaired.setdefault("estimated_study_time", 4)
         repaired.setdefault("mastery_score", default_mastery)
         repaired.setdefault("sources", [])
         if "evaluation" in repaired and isinstance(repaired["evaluation"], dict):
             repaired["evaluation"] = repaired["evaluation"]
 
-        return DocumentBuilder.create_document(repaired)
+        return TutorDocument(**repaired)

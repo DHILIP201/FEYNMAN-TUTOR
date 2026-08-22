@@ -1544,7 +1544,8 @@ async def tutor_chat(
                 current_mastery=session.mastery,
                 sources=sources_citation,
                 session_topic=cleaned_user_topic,
-                variant=selected_variant
+                variant=selected_variant,
+                pdf_context=context_text if session.has_doc else None
             )
             session.mastery = tutor_data["mastery_score"]
             ai_chat_msg = ChatMessage(
@@ -1566,7 +1567,8 @@ async def tutor_chat(
                 current_mastery=session.mastery,
                 sources=sources_citation,
                 session_topic=cleaned_user_topic,
-                variant=selected_variant
+                variant=selected_variant,
+                pdf_context=context_text if session.has_doc else None
             )
             session.mastery = tutor_data["mastery_score"]
             ai_chat_msg = ChatMessage(
@@ -1584,7 +1586,8 @@ async def tutor_chat(
             raw_json,
             session.mastery,
             fallback_topic=cleaned_user_topic,
-            variant=selected_variant
+            variant=selected_variant,
+            pdf_context=context_text if session.has_doc else None
         )
         tutor_data = tutor_doc.model_dump()
         tutor_data["blocks"] = feynman_engine.build_document_blocks(tutor_data)
