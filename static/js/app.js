@@ -2469,7 +2469,7 @@ function renderMessageUI(role, text, animate, imageObj = null) {
 
             div.innerHTML = `
                 <img src="/static/images/feynman_logo.png?v=${APP_VERSION}" alt="Feynman AI" class="w-10 h-10 rounded-2xl object-contain bg-[#1A1F2E] p-1 shadow-lg border border-indigo-500/20 flex-shrink-0">
-                <div class="bg-[#11141A] border border-[#222833] rounded-2xl overflow-hidden shadow-xl max-w-[88%] w-full transition-all hover:border-indigo-500/30 cursor-pointer" onclick="handleCardClick('${cardUniqueId}')">
+                <div class="bg-[#11141A] border border-[#222833] rounded-2xl overflow-hidden shadow-xl max-w-[88%] w-full transition-all hover:border-indigo-500/30 cursor-pointer" onclick="handleCardClick('${cardUniqueId}', event)">
                     <div class="px-5 py-3 border-b border-[#222833] flex items-center justify-between bg-[#0B0D12]/40 text-xs">
                         <div class="flex items-center gap-2 font-semibold text-white">
                             <span>Feynman AI</span>
@@ -2501,18 +2501,18 @@ function renderMessageUI(role, text, animate, imageObj = null) {
 
                     <div class="bg-[#0B0D12]/60 border-t border-[#222833] px-5 py-3 flex items-center justify-between text-xs text-gray-400">
                         <div class="flex items-center gap-2">
-                            <button onclick="triggerCardQuickPrompt('${cardUniqueId}', 'simplify'); event.stopPropagation();" class="hover:text-white transition-colors bg-[#161B26] hover:bg-[#1E2536] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300">
+                            <button type="button" class="card-action simplify-btn hover:text-white transition-colors bg-[#161B26] hover:bg-[#1E2536] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300 pointer-events-auto cursor-pointer" data-action="simplify" data-message-id="${cardUniqueId}" onclick="triggerCardQuickPrompt('${cardUniqueId}', 'simplify'); event.stopPropagation();">
                                 💡 Simplify
                             </button>
-                            <button onclick="triggerCardQuickPrompt('${cardUniqueId}', 'analogy'); event.stopPropagation();" class="hover:text-white transition-colors bg-[#161B26] hover:bg-[#1E2536] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300">
+                            <button type="button" class="card-action analogy-btn hover:text-white transition-colors bg-[#161B26] hover:bg-[#1E2536] border border-[#222833] px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300 pointer-events-auto cursor-pointer" data-action="analogy" data-message-id="${cardUniqueId}" onclick="triggerCardQuickPrompt('${cardUniqueId}', 'analogy'); event.stopPropagation();">
                                 🍕 Analogy
                             </button>
-                            <button onclick="openTutorQuiz('${cardUniqueId}'); event.stopPropagation();" class="hover:text-white transition-colors bg-gradient-to-r from-indigo-600/20 to-purple-600/20 hover:from-indigo-600/30 hover:to-purple-600/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-300 flex items-center gap-1.5 shadow-sm">
+                            <button type="button" id="quiz-btn-${cardUniqueId}" class="card-action quiz-me-btn hover:text-white transition-colors bg-gradient-to-r from-indigo-600/20 to-purple-600/20 hover:from-indigo-600/30 hover:to-purple-600/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-300 flex items-center gap-1.5 shadow-sm pointer-events-auto cursor-pointer" data-action="quiz-me" data-message-id="${cardUniqueId}" onclick="openTutorQuiz('${cardUniqueId}'); event.stopPropagation();">
                                 🧠 Quiz Me
                             </button>
                         </div>
                         ${mode !== 'STEP_BY_STEP' ? `
-                        <button onclick="triggerCardQuickPrompt('${cardUniqueId}', 'step_by_step'); event.stopPropagation();" class="text-indigo-400 hover:text-indigo-300 font-semibold text-xs flex items-center gap-1 transition-colors">
+                        <button type="button" class="card-action step-by-step-btn text-indigo-400 hover:text-indigo-300 font-semibold text-xs flex items-center gap-1 transition-colors pointer-events-auto cursor-pointer" data-action="step_by_step" data-message-id="${cardUniqueId}" onclick="triggerCardQuickPrompt('${cardUniqueId}', 'step_by_step'); event.stopPropagation();">
                             Teach step by step →
                         </button>` : `
                         <span class="text-[11px] text-gray-500 font-mono">5-Step Active</span>
@@ -2523,6 +2523,7 @@ function renderMessageUI(role, text, animate, imageObj = null) {
             try {
                 if (chatContainer) {
                     chatContainer.appendChild(div);
+                    initChatDelegation();
                     initMermaidDiagrams();
                     renderKaTeXMath(div);
                     scrollToBottom();
@@ -2988,7 +2989,10 @@ ${data.reflection_prompt ? `### Active Recall Challenge\n${data.reflection_promp
     showToast("Study note exported as Markdown!", "success");
 }
 
-function handleCardClick(cardId) {
+function handleCardClick(cardId, e) {
+    if (e && e.target && e.target.closest('button, a, input, textarea, select, .card-action')) {
+        return;
+    }
     const data = cardDataStore[cardId];
     if (data && data.visual_intuition) {
         updateWhiteboardContent(data.visual_intuition, data.canonical_topic || "Visual Sandbox Diagram");
@@ -4323,11 +4327,70 @@ function closeQuizModal() {
 
 let activeTutorQuizState = null;
 
+function initChatDelegation() {
+    const chatContainer = document.getElementById('chat-container');
+    if (!chatContainer || chatContainer._tutorQuizDelegationAttached) return;
+    chatContainer._tutorQuizDelegationAttached = true;
+
+    chatContainer.addEventListener("click", (event) => {
+        const quizBtn = event.target.closest("[data-action='quiz-me']");
+        if (quizBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            const messageId = quizBtn.dataset.messageId || quizBtn.getAttribute('data-message-id');
+            if (!messageId) {
+                console.error("[TUTOR-QUIZ] Missing messageId on quiz-me button");
+                return;
+            }
+            openTutorQuiz(messageId);
+            return;
+        }
+
+        const actionBtn = event.target.closest("[data-action='simplify'], [data-action='analogy'], [data-action='step_by_step']");
+        if (actionBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            const action = actionBtn.dataset.action || actionBtn.getAttribute('data-action');
+            const messageId = actionBtn.dataset.messageId || actionBtn.getAttribute('data-message-id');
+            if (messageId && action) {
+                triggerCardQuickPrompt(messageId, action);
+            }
+        }
+    });
+}
+
 async function openTutorQuiz(cardUniqueId) {
-    const cardData = cardDataStore[cardUniqueId] || {};
+    if (!cardUniqueId) {
+        console.error("[TUTOR-QUIZ] openTutorQuiz called with empty cardUniqueId");
+        showToast("Unable to start Quiz Me: missing card ID.", "error");
+        return;
+    }
+
+    const cardData = cardDataStore[cardUniqueId];
+    if (!cardData) {
+        console.warn("[TUTOR-QUIZ] Card data missing from store for ID:", cardUniqueId);
+        showToast("Unable to start Quiz Me for this lesson. Please try again.", "error");
+        return;
+    }
+
     const topic = cardData.canonical_topic || "Core Concept";
     const mode = cardData.lesson_mode || "STANDARD";
-    const lessonText = cardData.simple_explanation || "";
+    const lessonText = cardData.simple_explanation || cardData.lesson_text || "";
+
+    console.info("[TUTOR-QUIZ] Click", {
+        messageId: cardUniqueId,
+        canonicalTopic: topic,
+        lessonMode: mode
+    });
+
+    // Temporary button visual feedback
+    const btn = document.querySelector(`[data-action="quiz-me"][data-message-id="${cardUniqueId}"]`) || document.getElementById(`quiz-btn-${cardUniqueId}`);
+    let origBtnHtml = "";
+    if (btn) {
+        origBtnHtml = btn.innerHTML;
+        btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin mr-1"></i> Loading...`;
+        btn.disabled = true;
+    }
 
     const modal = document.getElementById('tutor-quiz-modal');
     const body = document.getElementById('tutor-quiz-body');
@@ -4337,7 +4400,18 @@ async function openTutorQuiz(cardUniqueId) {
     const title = document.getElementById('tutor-quiz-title');
     const subtitle = document.getElementById('tutor-quiz-subtitle');
 
-    if (modal) modal.classList.remove('hidden');
+    if (!modal) {
+        console.error("[TUTOR-QUIZ] #tutor-quiz-modal DOM element NOT found!");
+        showToast("Quiz modal not found in DOM.", "error");
+        if (btn && origBtnHtml) {
+            btn.innerHTML = origBtnHtml;
+            btn.disabled = false;
+        }
+        return;
+    }
+
+    // Immediately open modal and display loading state
+    modal.classList.remove('hidden');
     if (progressSec) progressSec.classList.add('hidden');
     if (footer) footer.classList.add('hidden');
     if (title) title.innerText = `${topic}`;
@@ -4351,8 +4425,8 @@ async function openTutorQuiz(cardUniqueId) {
                     <i class="fa-solid fa-brain"></i>
                 </div>
                 <div>
-                    <h4 class="text-white font-bold text-lg font-display">Generating Comprehension Check</h4>
-                    <p class="text-gray-400 text-xs mt-1 max-w-sm">Synthesizing 3-4 targeted questions on <span class="text-indigo-300 font-semibold">${topic}</span>...</p>
+                    <h4 class="text-white font-bold text-lg font-display">Preparing your 4-question quiz...</h4>
+                    <p class="text-gray-400 text-xs mt-1 max-w-sm">Synthesizing targeted questions on <span class="text-indigo-300 font-semibold">${topic}</span>...</p>
                 </div>
                 <div class="flex items-center gap-2 text-indigo-400 text-xs font-semibold mt-2">
                     <i class="fa-solid fa-spinner animate-spin"></i> Grounding in current lesson...
@@ -4360,6 +4434,9 @@ async function openTutorQuiz(cardUniqueId) {
             </div>
         `;
     }
+
+    const startTime = Date.now();
+    console.info("[TUTOR-QUIZ] Start request");
 
     try {
         const response = await fetchAPI('/tutor-quiz/start/', {
@@ -4375,6 +4452,9 @@ async function openTutorQuiz(cardUniqueId) {
         });
 
         const data = await response.json();
+        const latencyMs = Date.now() - startTime;
+        console.info("[TUTOR-QUIZ] Response", { status: response.status, latencyMs });
+
         if (!response.ok) {
             throw new Error(data.detail || "Failed to generate tutor quiz.");
         }
@@ -4398,7 +4478,7 @@ async function openTutorQuiz(cardUniqueId) {
         renderTutorQuizQuestion();
 
     } catch (err) {
-        console.error("[Tutor Quiz Start Error]", err);
+        console.error("[TUTOR-QUIZ] Start Error:", err);
         if (body) {
             body.innerHTML = `
                 <div class="py-12 flex flex-col items-center justify-center text-center space-y-4">
@@ -4410,15 +4490,20 @@ async function openTutorQuiz(cardUniqueId) {
                         <p class="text-gray-400 text-xs mt-1 max-w-sm">${err.message || "Failed to generate quiz questions for this lesson."}</p>
                     </div>
                     <div class="flex items-center gap-3 pt-2">
-                        <button onclick="openTutorQuiz('${cardUniqueId}')" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl font-bold transition-all">
+                        <button type="button" onclick="openTutorQuiz('${cardUniqueId}')" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl font-bold transition-all cursor-pointer">
                             <i class="fa-solid fa-rotate-right mr-1"></i> Retry
                         </button>
-                        <button onclick="closeTutorQuizModal()" class="text-xs bg-[#1A2030] hover:bg-[#232B40] text-gray-300 px-4 py-2.5 rounded-xl font-semibold transition-all">
+                        <button type="button" onclick="closeTutorQuizModal()" class="text-xs bg-[#1A2030] hover:bg-[#232B40] text-gray-300 px-4 py-2.5 rounded-xl font-semibold transition-all cursor-pointer">
                             Close
                         </button>
                     </div>
                 </div>
             `;
+        }
+    } finally {
+        if (btn && origBtnHtml) {
+            btn.innerHTML = origBtnHtml;
+            btn.disabled = false;
         }
     }
 }
@@ -4923,6 +5008,7 @@ if (typeof window !== 'undefined') {
     window.requestTutorQuizHint = requestTutorQuizHint;
     window.submitTutorQuizAnswer = submitTutorQuizAnswer;
     window.nextTutorQuizQuestion = nextTutorQuizQuestion;
+    window.initChatDelegation = initChatDelegation;
 }
 
 // Boot the application
@@ -4930,12 +5016,15 @@ if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => { 
             initFileUpload();
+            initChatDelegation();
             init(); 
         });
     } else {
         initFileUpload();
+        initChatDelegation();
         init();
     }
 }
+
 
 

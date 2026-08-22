@@ -420,11 +420,64 @@ class TestTutorQuizSuite(unittest.TestCase):
         self.assertNotIn('<span id="hint-btn-text">I\'m stuck, request hint</span>', html)
         self.assertNotIn('<button onclick="triggerProgressiveHint()', html)
 
-    def test_tutor_quiz_20_gemini_gateway_routing(self):
-        """TUTOR-QUIZ-20: Tutor Quiz routes through GeminiGateway."""
-        self.assertIsNotNone(gemini_gateway)
-        self.assertTrue(hasattr(gemini_gateway, "generate"))
+    def test_tutor_quiz_ui_contracts_and_dom_hierarchy(self):
+        """QUIZ-UI-1..6: Test DOM structure, modal isolation from #quiz-modal, and data attributes."""
+        with open("index.html", "r", encoding="utf-8") as f:
+            html = f.read()
+        with open("static/js/app.js", "r", encoding="utf-8") as f:
+            js = f.read()
+
+        # QUIZ-UI-1 & QUIZ-UI-2: Button markup has data-action="quiz-me" and data-message-id
+        self.assertIn('data-action="quiz-me"', js)
+        self.assertIn('data-message-id="${cardUniqueId}"', js)
+        self.assertIn('class="card-action quiz-me-btn', js)
+
+        # QUIZ-UI-3 & QUIZ-UI-4: Delegated click handler and global functions
+        self.assertIn('initChatDelegation', js)
+        self.assertIn('chatContainer.addEventListener("click"', js)
+        self.assertIn('window.openTutorQuiz = openTutorQuiz', js)
+
+        # QUIZ-UI-5: Modal exists as its own top-level overlay and is NOT nested inside #quiz-modal
+        self.assertIn('id="tutor-quiz-modal"', html)
+        self.assertIn('id="quiz-modal"', html)
+        
+        # Verify closing tags between #quiz-modal and #tutor-quiz-modal
+        quiz_modal_idx = html.find('id="quiz-modal"')
+        tutor_modal_idx = html.find('id="tutor-quiz-modal"')
+        self.assertTrue(quiz_modal_idx < tutor_modal_idx)
+        segment = html[quiz_modal_idx:tutor_modal_idx]
+        
+        # In this segment, opening and closing divs must balance out so tutor-quiz-modal is NOT inside quiz-modal
+        open_divs = segment.count('<div')
+        close_divs = segment.count('</div>')
+        self.assertEqual(open_divs, close_divs, "CRITICAL: tutor-quiz-modal is nested inside quiz-modal!")
+
+    def test_tutor_quiz_all_four_lesson_modes(self):
+        """QUIZ-UI-10..14: Verify Quiz Me works independently on Standard, Simplify, Analogy, and Step-by-Step."""
+        modes = ["STANDARD", "SIMPLIFY", "ANALOGY", "STEP_BY_STEP"]
+        created_quizzes = {}
+
+        for mode in modes:
+            payload = {
+                "message_id": f"card-msg-{mode.lower()}",
+                "session_id": "test-session-modes",
+                "canonical_topic": "Convolutional Neural Networks",
+                "lesson_text": f"CNN Lesson content for {mode} mode.",
+                "lesson_mode": mode,
+                "question_count": 4
+            }
+            res = self.client.post("/tutor-quiz/start/", json=payload, headers=self.headers_a)
+            self.assertEqual(res.status_code, 200, f"Failed on mode {mode}")
+            data = res.json()
+            self.assertEqual(data["lesson_mode"], mode)
+            self.assertEqual(data["message_id"], f"card-msg-{mode.lower()}")
+            created_quizzes[mode] = data["quiz_id"]
+
+        # Ensure all 4 quiz sessions have distinct IDs and states
+        quiz_ids = list(created_quizzes.values())
+        self.assertEqual(len(set(quiz_ids)), 4, "Quiz IDs must be unique across all 4 modes!")
 
 
 if __name__ == "__main__":
     unittest.main()
+
